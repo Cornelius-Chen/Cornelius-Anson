@@ -132,3 +132,158 @@ Side modules:
 ---
 
 # 📁 Repository Structure
+dugong/
+README.md
+
+docs/
+SPEC_V1.md
+ARCHITECTURE.md
+ROADMAP.md
+PROTOCOL.md
+
+dugong_app/
+init.py
+main.py
+
+core/
+  state.py
+  rules.py
+  events.py
+  event_bus.py
+  clock.py
+
+ui/
+  shell_qt.py
+  renderer.py
+  assets/
+
+persistence/
+  storage_json.py
+
+interaction/
+  protocol.py
+  transport_base.py
+  transport_file.py
+  transport_github.py
+  transport_lan.py
+
+services/
+  timers.py
+  sensors_stub.py
+tests/
+test_state_tick.py
+test_protocol.py
+
+scripts/
+run_dev.sh
+
+
+---
+
+# 🧩 V1 Scope Definition
+
+V1 is strictly:
+
+- Single-player
+- Fully local
+- Architecturally ready for expansion
+
+### Must Have
+
+- Floating always-on-top window
+- Draggable
+- Right-click menu with:
+  - study
+  - chill
+  - rest
+- 60-second tick update cycle
+- energy / mood / focus drift logic
+- JSON persistence
+- Event emission system
+- Click-triggered bubble text
+
+### Not in V1
+
+- No real networking
+- No transport activation
+- No automatic detection
+- No complex animation
+- No growth mechanics
+
+---
+
+# 👥 Division of Responsibility
+
+## Cornelius — System Architect
+
+Responsible for:
+
+- `core/`
+- `persistence/`
+- `event_bus`
+- `protocol`
+- `tests/`
+- architecture documentation
+
+Deliverable standard:
+
+- Tick system deterministic
+- State transitions testable
+- JSON persistence stable
+- Clean event abstraction
+
+---
+
+## Anson — Product & Interaction
+
+Responsible for:
+
+- `ui/`
+- Window behavior
+- Drag logic
+- Context menu
+- Sprite mapping
+- Bubble expression style
+- Asset management
+
+Deliverable standard:
+
+- Dugong feels alive
+- Interaction smooth
+- No visual glitches
+- Clean separation from core logic
+
+---
+
+# 🔮 Design Philosophy
+
+Dugong is:
+
+- A mirror of behavior
+- A mediator of interaction
+- A structured agent
+- A long-term evolving system
+
+It is not:
+
+- A toy
+- A chat bot
+- A decorative widget
+
+---
+
+# 🚀 Long-Term Objective
+
+In 3 years, Dugong should:
+
+- Reflect real productivity signals
+- Mediate structured interaction
+- Maintain logs of behavioral history
+- Act as a personal symbolic agent
+- Be architecturally clean enough to scale
+
+---
+
+Dugong begins simple.
+
+But it is built to grow.
