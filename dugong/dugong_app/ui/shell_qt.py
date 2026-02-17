@@ -1,10 +1,57 @@
 ﻿from __future__ import annotations
 
+import sys
 import tkinter as tk
 from collections.abc import Callable
 
 
+def apply_transparency(root: tk.Tk, transparent_key_color: str) -> dict:
+    """
+    Cross-platform transparency for Tkinter.
+
+    - macOS: try true transparency via '-transparent' + systemTransparent
+    - Windows: color-key transparency via '-transparentcolor'
+    - Others: fallback (no cutout transparency)
+
+    Returns:
+      {"mode": "mac" | "win" | "fallback", "bg": bg_color_for_widgets}
+    """
+    info = {"mode": "fallback", "bg": transparent_key_color}
+
+    try:
+        if sys.platform == "darwin":
+            # macOS true transparency (if supported by your Tk build)
+            root.wm_attributes("-transparent", True)
+            root.wm_attributes("-alpha", 1.0)
+            root.configure(bg="systemTransparent")
+            return {"mode": "mac", "bg": "systemTransparent"}
+
+        if sys.platform.startswith("win"):
+            # Windows color-key transparency (EXACT color match required)
+            root.attributes("-transparentcolor", transparent_key_color)
+            root.configure(bg=transparent_key_color)
+            return {"mode": "win", "bg": transparent_key_color}
+
+    except Exception:
+        pass
+
+    # Optional mild alpha fallback (NOT cutout transparency)
+    try:
+        root.attributes("-alpha", 0.98)
+    except Exception:
+        pass
+
+    return info
+
+
 class DugongShell:
+    """
+    UI contract (V1 frozen):
+      - update_view(sprite, state_text, bubble)
+      - schedule_every(seconds, callback)
+      - run()
+    """
+
     def __init__(
         self,
         on_mode_change: Callable[[str], None],
@@ -19,29 +66,39 @@ class DugongShell:
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
 
+        # --- Transparency (cross-platform) ---
+        TRANSPARENT_KEY = "#eaf4ff"  # Windows uses this as the "cutout" color
+        t = apply_transparency(self.root, TRANSPARENT_KEY)
+        self.BG = t["bg"]
+        print("[UI] platform:", sys.platform, "transparency:", t)
+
+        # drag state
         self._drag_origin_x = 0
         self._drag_origin_y = 0
         self._dragging = False
+
+        # hover hide debounce
         self._hide_job: str | None = None
 
-        self.frame = tk.Frame(self.root, bd=1, relief=tk.SOLID, bg="#eaf4ff")
+        # main frame (IMPORTANT: bg must be BG for transparency to work)
+        self.frame = tk.Frame(self.root, bd=0, relief=tk.FLAT, bg=self.BG)
         self.frame.pack(fill=tk.BOTH, expand=True)
 
         # Title
         self.title_label = tk.Label(
-            self.frame, text="Dugong", bg="#eaf4ff", font=("TkDefaultFont", 12, "bold")
+            self.frame, text="Dugong", bg=self.BG, font=("TkDefaultFont", 12, "bold")
         )
         self.title_label.pack(pady=(10, 2))
 
-        # BIG PET EMOJI (NEW)
+        # Big pet emoji
         self.pet_label = tk.Label(
-            self.frame, text="🦭", bg="#eaf4ff", font=("TkDefaultFont", 48)
+            self.frame, text="🦭", bg=self.BG, font=("TkDefaultFont", 48)
         )
         self.pet_label.pack(pady=(2, 2))
 
         # State line
         self.state_label = tk.Label(
-            self.frame, text="state", bg="#eaf4ff", font=("TkFixedFont", 10)
+            self.frame, text="state", bg=self.BG, font=("TkFixedFont", 10)
         )
         self.state_label.pack(pady=2)
 
@@ -49,7 +106,7 @@ class DugongShell:
         self.bubble_label = tk.Label(
             self.frame,
             text="",
-            bg="#eaf4ff",
+            bg=self.BG,
             fg="#174a7a",
             wraplength=240,
             justify="center",
@@ -145,7 +202,6 @@ class DugongShell:
             self.option_bar.place_forget()
 
     def _reposition_option_bar(self) -> None:
-        # keep it bottom-centered if visible
         try:
             if self.option_bar.winfo_ismapped():
                 self._place_option_bar()
@@ -198,7 +254,6 @@ class DugongShell:
         self.root.after(seconds * 1000, loop)
 
     def update_view(self, sprite: str, state_text: str, bubble: str | None = None) -> None:
-        # sprite is now emoji (e.g. "🦭", "💤🦭")
         self.pet_label.configure(text=sprite)
         self.state_label.configure(text=state_text)
 
@@ -208,4 +263,3 @@ class DugongShell:
 
     def run(self) -> None:
         self.root.mainloop()
-

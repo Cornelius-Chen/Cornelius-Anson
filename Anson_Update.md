@@ -47,3 +47,17 @@
   - Hover Action Bar 在不同 Tk 版本上可能存在轻微闪烁/敏感问题（如出现，需进一步 debounce 调整）。
 - Notes for Cornelius:
   - UI 未触碰 core/controller；若后续要做“mood 独立于 mode”的交互，需要先在 core/controller 定义新回调/协议，再由 UI 侧接入。
+## 2026-02-17 05:20:00
+- Scope: UI 透明底跨平台实现（mac 真透明 / win 色键透明 / 自动降级），修复 BG 未生效导致的不透明问题。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+- Changes:
+  - 新增 apply_transparency()，按平台选择透明方案并返回 BG
+  - 将 frame/title/pet/state/bubble 的 bg 统一为 BG（透明的关键）
+  - frame 去边框（bd=0, relief=FLAT），减少透明边缘残留
+  - 增加调试输出：platform + transparency mode
+- Validation:
+  - [ ] python -m dugong_app.main
+  - [ ] 观察打印 transparency mode 是否为 mac/win（非 fallback）
+- Not Implemented / Notes:
+  - 若 transparency mode 为 fallback，表示当前 Tk 环境不支持 cutout transparency，只能 alpha 降级或后续迁移 Qt。
