@@ -171,3 +171,41 @@
 - UI Follow-up for Anson (minimal):
   - Optional only: show `today sessions count` from `focus_sessions.json` in existing bubble or status text.
   - No UI API contract change required.
+
+## 2026-02-17 06:40:00
+- Scope: V2 M1 start (file transport + sync engine + remote reflection baseline).
+- Files:
+  - `dugong/dugong_app/interaction/transport_file.py`
+  - `dugong/dugong_app/services/sync_engine.py`
+  - `dugong/dugong_app/controller.py`
+  - `dugong/dugong_app/core/events.py`
+  - `dugong/tests/test_sync_engine.py`
+  - `README.md`
+  - `dugong/README.md`
+- Changes:
+  - Implemented `file` transport MVP via shared folder jsonl exchange.
+  - Implemented sync engine: publish local events, pull remote events, event_id dedupe, append remote journal.
+  - Added V2 config in controller: source_id/transport/sync_interval/shared_dir.
+  - Added minimal remote reflection without UI file changes:
+    - state line includes `R:<unread_remote>` and `S:<sync_status>`
+    - bubble reflects remote `manual_ping`/`mode_change`
+    - click clears unread count
+  - Event constructors now support explicit `source`.
+- Validation:
+  - `python -m pytest` -> 12 passed
+
+## 2026-02-17 07:05:00
+- Scope: V2 transport extension (GitHub transport beta).
+- Files:
+  - `dugong/dugong_app/interaction/transport_github.py`
+  - `dugong/dugong_app/controller.py`
+  - `dugong/tests/test_transport_github.py`
+  - `README.md`
+  - `dugong/README.md`
+- Changes:
+  - Implemented GitHub-based transport using repo contents API (append/read jsonl files).
+  - Controller now supports `DUGONG_TRANSPORT=github` with env config.
+  - Added tests for github transport send/receive behavior (mocked API methods).
+  - Updated docs with github setup variables and demo steps.
+- Validation:
+  - `python -m pytest` -> 14 passed

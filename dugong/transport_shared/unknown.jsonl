@@ -1,0 +1,1 @@
+{"version": "v1.1", "sender": "unknown", "receiver": "*", "event": {"event_type": "manual_ping", "timestamp": "2026-02-17T11:03:29.476270+00:00", "event_id": "847dbef9eb7540a88a8199be457e4b30", "source": "unknown", "schema_version": "v1.1", "payload": {"message": "checkin"}}, "event_id": "847dbef9eb7540a88a8199be457e4b30", "source": "unknown", "schema_version": "v1.1"}

@@ -317,3 +317,41 @@ This section reflects what is already implemented in code.
 ## Important Clarification
 
 Some V1.1+ data features are currently **recorded in files** but not yet fully surfaced in UI (for example `focus_sessions.json` visualization).
+
+---
+
+# V2 Scope (MVP Start)
+
+## One-line Goal
+
+Upgrade Dugong from a local desktop pet + recorder into a **two-machine behavior sync + reflection layer**.
+
+## V2 Must Have (MVP)
+
+- Usable dual-end sync with one real transport (MVP uses `file` transport)
+- Event-level sync (`event_journal` semantics, not force-sync state snapshot)
+- Remote event reflection in UI (bubble/state hint at minimum)
+- Idempotent sync (`event_id` dedupe; repeated pull does not double count)
+- Minimal payload + explicit `source`
+
+## V2 Not In Scope
+
+- Chat system
+- Complex animation/skin pipeline
+- Cloud relay server
+- Automatic behavior detection
+
+## V2 Current Progress
+
+- `file` transport implemented for cross-machine/shared-folder exchange
+- `github` transport implemented (repo content based, low-frequency sync)
+- `sync_engine` implemented (`publish local`, `pull remote`, `dedupe`, `append journal`)
+- Controller wired with config:
+  - `DUGONG_SOURCE_ID`
+  - `DUGONG_TRANSPORT` (`file` / `github`)
+  - `DUGONG_SYNC_INTERVAL_SECONDS`
+  - `DUGONG_FILE_TRANSPORT_DIR`
+  - `DUGONG_GITHUB_REPO` / `DUGONG_GITHUB_TOKEN` / `DUGONG_GITHUB_BRANCH` / `DUGONG_GITHUB_FOLDER`
+- Remote reflection (minimal):
+  - bubble on remote `manual_ping` / `mode_change`
+  - state line includes remote unread count and sync status

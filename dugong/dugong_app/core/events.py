@@ -23,19 +23,19 @@ class DugongEvent:
         return asdict(self)
 
 
-def state_tick_event(state_dict: dict[str, Any], tick_seconds: int = 60) -> DugongEvent:
+def state_tick_event(state_dict: dict[str, Any], tick_seconds: int = 60, source: str = "dugong_app") -> DugongEvent:
     payload = dict(state_dict)
     payload["tick_seconds"] = int(tick_seconds)
-    return DugongEvent(event_type="state_tick", payload=payload)
+    return DugongEvent(event_type="state_tick", payload=payload, source=source)
 
 
-def mode_change_event(mode: str) -> DugongEvent:
-    return DugongEvent(event_type="mode_change", payload={"mode": mode})
+def mode_change_event(mode: str, source: str = "dugong_app") -> DugongEvent:
+    return DugongEvent(event_type="mode_change", payload={"mode": mode}, source=source)
 
 
-def click_event() -> DugongEvent:
-    return DugongEvent(event_type="click", payload={})
+def click_event(source: str = "dugong_app") -> DugongEvent:
+    return DugongEvent(event_type="click", payload={}, source=source)
 
 
-def manual_ping_event(message: str = "manual_ping") -> DugongEvent:
-    return DugongEvent(event_type="manual_ping", payload={"message": message})
+def manual_ping_event(message: str = "manual_ping", source: str = "dugong_app") -> DugongEvent:
+    return DugongEvent(event_type="manual_ping", payload={"message": message}, source=source)

@@ -71,3 +71,22 @@
 - Constraints:
   - Do not change existing UI constructor/update_view signatures.
   - Keep all current interactions unchanged.
+
+## 2026-02-17 06:40:00
+- Scope: V2 M1 UI minimal follow-up (no mandatory UI refactor).
+- Core already provides:
+  - remote unread count in state text (`R:<n>`)
+  - sync status in state text (`S:ok/fail/disabled`)
+  - remote bubble reflection for `manual_ping` and `mode_change`
+- Optional minimal UI for Anson (keep existing structure):
+  - Parse state_text and style `R:` as badge-like highlight.
+  - Parse `S:` and map to tiny dot color (green/yellow/red).
+  - Keep all existing callbacks/signatures unchanged.
+
+## 2026-02-17 07:05:00
+- Scope: V2 github transport landed (UI no change required).
+- Core delivered:
+  - `DUGONG_TRANSPORT=github` route available.
+  - Remote reflection still via current bubble + `R:/S:` state text.
+- Optional UI next step (minimal):
+  - make `S:ok/fail/disabled` more visible as color dot; no API change needed.
