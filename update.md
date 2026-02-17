@@ -38,3 +38,17 @@
 - Validation:
   - `python -m pytest` -> 4 passed
   - `python -c "import dugong_app.main as m; print('ok', hasattr(m, 'create_default_controller'))"` -> ok True
+
+## 2026-02-17 04:08:00
+- Scope: 降低协作冲突，拆分启动入口与控制器实现。
+- Files:
+  - `dugong/dugong_app/controller.py`
+  - `dugong/dugong_app/main.py`
+  - `dugong/tests/test_entrypoint.py`
+- Changes:
+  - 新增 `controller.py`，承载 `DugongController` 和 `create_default_controller()`。
+  - `main.py` 精简为纯入口文件，仅负责调用 `create_default_controller().run()`。
+  - 新增入口测试，确保 `dugong_app.main` 仍可导入并创建控制器。
+- Validation:
+  - `python -m pytest` -> 5 passed
+  - `python -c "from dugong_app.main import create_default_controller; c=create_default_controller(); print(type(c).__name__)"` -> DugongController
