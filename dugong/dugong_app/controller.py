@@ -7,9 +7,11 @@ from dugong_app.core.event_bus import EventBus
 from dugong_app.core.events import click_event, manual_ping_event, mode_change_event, state_tick_event
 from dugong_app.core.rules import apply_tick, switch_mode
 from dugong_app.persistence.event_journal import EventJournal
+from dugong_app.persistence.focus_sessions_json import FocusSessionsStorage
 from dugong_app.persistence.storage_json import JsonStorage
 from dugong_app.persistence.summary_json import SummaryStorage
 from dugong_app.services.daily_summary import summarize_events
+from dugong_app.services.focus_sessions import build_focus_sessions
 from dugong_app.ui.renderer import Renderer
 from dugong_app.ui.shell_qt import DugongShell
 
@@ -26,6 +28,7 @@ class DugongController:
         retention_days = int(os.getenv("DUGONG_JOURNAL_RETENTION_DAYS", "30"))
         self.journal = EventJournal(root_dir / "event_journal.jsonl", retention_days=retention_days)
         self.summary_storage = SummaryStorage(root_dir / "daily_summary.json")
+        self.focus_sessions_storage = FocusSessionsStorage(root_dir / "focus_sessions.json")
 
         self.shell = self._create_shell()
         self.bus.subscribe("*", self._on_any_event)
@@ -46,8 +49,11 @@ class DugongController:
     def _on_any_event(self, event) -> None:
         self.storage.save(self.state)
         self.journal.append(event)
-        summary = summarize_events(self.journal.load_all())
+        all_events = self.journal.load_all()
+        summary = summarize_events(all_events)
+        focus_sessions = build_focus_sessions(all_events)
         self.summary_storage.save(summary)
+        self.focus_sessions_storage.save(focus_sessions)
 
     def _state_text(self) -> str:
         return f"E:{self.state.energy} M:{self.state.mood} F:{self.state.focus} [{self.state.mode}]"

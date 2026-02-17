@@ -61,3 +61,13 @@
   - [ ] 观察打印 transparency mode 是否为 mac/win（非 fallback）
 - Not Implemented / Notes:
   - 若 transparency mode 为 fallback，表示当前 Tk 环境不支持 cutout transparency，只能 alpha 降级或后续迁移 Qt。
+
+## 2026-02-17 06:05:00
+- Scope: minimal UI follow-up for new focus sessions.
+- Core output added:
+  - `focus_sessions.json` (derived from mode changes)
+- Suggested minimal UI task (optional):
+  - Read `focus_sessions.json` and display a tiny text hint like `sessions today: N`.
+- Constraints:
+  - Do not change existing UI constructor/update_view signatures.
+  - Keep all current interactions unchanged.

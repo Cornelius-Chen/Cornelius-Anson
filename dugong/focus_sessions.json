@@ -1,0 +1,84 @@
+{
+  "sessions": [
+    {
+      "start_at": "2026-02-17T10:07:15.113181+00:00",
+      "end_at": "2026-02-17T10:07:16.203734+00:00",
+      "duration_seconds": 1,
+      "start_event_id": "55071011eb26470c9fa73402f25b4292",
+      "end_event_id": "8b5547fb13514186a5d6fc1d65174666",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-17T10:07:19.137149+00:00",
+      "end_at": "2026-02-17T10:12:38.867991+00:00",
+      "duration_seconds": 319,
+      "start_event_id": "cb3bd0fcb97b43dd87d9fab15777608d",
+      "end_event_id": "e115bfd86a2f4b98a3fd69d61d1e7aec",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-17T10:12:40.061834+00:00",
+      "end_at": "2026-02-17T10:23:43.599399+00:00",
+      "duration_seconds": 663,
+      "start_event_id": "b3657822d3834f4a950ab65e1a725d5e",
+      "end_event_id": "8d7929a6236240849db19b5a66776410",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-17T10:23:45.487468+00:00",
+      "end_at": "2026-02-17T10:25:11.617170+00:00",
+      "duration_seconds": 86,
+      "start_event_id": "f9d47f857f4549cea71e74f3f6f18740",
+      "end_event_id": "e909f31c15fe486cad80c85feef65e79",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-17T10:30:40.947086+00:00",
+      "end_at": "2026-02-17T10:31:47.879788+00:00",
+      "duration_seconds": 66,
+      "start_event_id": "ea1673527f8549e4b4434f974b1f6a9d",
+      "end_event_id": "bcccf28665e641b09f75cc4f3c1341ce",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-17T10:32:16.006068+00:00",
+      "end_at": "2026-02-17T10:37:52.192828+00:00",
+      "duration_seconds": 336,
+      "start_event_id": "df733e2b917d4e24951ce82ac3f30266",
+      "end_event_id": "52c3aae7807f435ead1e2c41e379ca12",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-17T10:37:59.916745+00:00",
+      "end_at": "2026-02-17T10:38:37.435851+00:00",
+      "duration_seconds": 37,
+      "start_event_id": "2ea50096a1ee4417866f659ad46efd43",
+      "end_event_id": "9d3172b6b04941529290a66d4a92620b",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-17T10:38:39.118164+00:00",
+      "end_at": "2026-02-17T10:38:39.441849+00:00",
+      "duration_seconds": 0,
+      "start_event_id": "3ce6d9bc56e043ee8971865bcd2088ff",
+      "end_event_id": "5e5b6505449e47a9825da2ac2eeeff88",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-17T10:38:40.962353+00:00",
+      "end_at": "2026-02-17T10:38:42.366465+00:00",
+      "duration_seconds": 1,
+      "start_event_id": "165d51d73ce14b2cad82c80a5330d14b",
+      "end_event_id": "8a2289e5a52c4be1823c68bd547189e8",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-17T10:40:39.385038+00:00",
+      "end_at": null,
+      "duration_seconds": 111,
+      "start_event_id": "62d6c11edb57478dbdd788c9da41efe9",
+      "end_event_id": null,
+      "ended_by": "open"
+    }
+  ]
+}

@@ -287,3 +287,33 @@ In 3 years, Dugong should:
 Dugong begins simple.
 
 But it is built to grow.
+
+---
+
+# V1 Current Implementation Status (Updated: 2026-02-17)
+
+This section reflects what is already implemented in code.
+
+## Visible In UI (Now)
+
+- Floating always-on-top window
+- Draggable shell
+- Mode controls: `study` / `chill` / `rest`
+- Manual signal button: `ping`
+- Click-triggered bubble text
+- Live state line: `energy` / `mood` / `focus` / `mode`
+
+## Core/Data Capabilities (Running, Not Fully Visualized Yet)
+
+- Deterministic 60-second tick system (`DUGONG_TICK_SECONDS` configurable)
+- Structured event emission (`state_tick`, `mode_change`, `click`, `manual_ping`)
+- Local persistence:
+  - `dugong_state.json` (state snapshot)
+  - `event_journal/` (daily event logs)
+  - `daily_summary.json` (daily aggregates + streak)
+  - `focus_sessions.json` (derived study sessions)
+- Event journal retention policy (`DUGONG_JOURNAL_RETENTION_DAYS`)
+
+## Important Clarification
+
+Some V1.1+ data features are currently **recorded in files** but not yet fully surfaced in UI (for example `focus_sessions.json` visualization).

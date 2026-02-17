@@ -1,4 +1,4 @@
-﻿# Dugong v1.2-core
+﻿# Dugong v1.3-core
 
 Run desktop pet app:
 
@@ -17,6 +17,7 @@ Runtime files (auto-generated in `dugong/`):
 - `dugong_state.json` (latest state snapshot)
 - `event_journal/` (daily event shards: `YYYY-MM-DD.jsonl`)
 - `daily_summary.json` (aggregated behavior summary)
+- `focus_sessions.json` (derived study sessions from mode events)
 
 Backward compatibility:
 

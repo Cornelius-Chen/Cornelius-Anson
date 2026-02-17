@@ -151,3 +151,23 @@
 - UI Follow-up for Anson:
   - 可选在 UI 提供“最近 N 天日志保留设置”的设置入口（写入 env 或配置文件）。
   - 可选增加一个“summary preview”入口，读取 `daily_summary.json` 展示 streak/今日 focus。
+
+## 2026-02-17 06:05:00
+- Scope: v1.3-core upgrade (focus session derivation and persistence).
+- Files:
+  - `dugong/dugong_app/services/focus_sessions.py`
+  - `dugong/dugong_app/persistence/focus_sessions_json.py`
+  - `dugong/dugong_app/controller.py`
+  - `dugong/tests/test_focus_sessions.py`
+  - `dugong/dugong_app/__init__.py`
+  - `dugong/README.md`
+- Changes:
+  - Added focus session builder from event stream (`mode_change` study enter/exit).
+  - Added persistence file `focus_sessions.json`.
+  - Controller now writes focus sessions on every event update.
+  - Version bump to `0.4.0`.
+- Validation:
+  - `python -m pytest` -> 11 passed
+- UI Follow-up for Anson (minimal):
+  - Optional only: show `today sessions count` from `focus_sessions.json` in existing bubble or status text.
+  - No UI API contract change required.
