@@ -1,7 +1,7 @@
 {
-  "energy": 77,
-  "mood": 80,
-  "focus": 44,
+  "energy": 100,
+  "mood": 91,
+  "focus": 0,
   "mode": "rest",
-  "tick_count": 32
+  "tick_count": 43
 }
