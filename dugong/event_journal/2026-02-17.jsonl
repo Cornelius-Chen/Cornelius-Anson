@@ -38,3 +38,4 @@
 {"event_type": "click", "timestamp": "2026-02-17T10:32:15.192424+00:00", "event_id": "13407651b15842be98c2d01367c80abc", "source": "dugong_app", "schema_version": "v1.1", "payload": {}}
 {"event_type": "click", "timestamp": "2026-02-17T10:32:15.350621+00:00", "event_id": "0155a89f07954f71bb3b2098026f263e", "source": "dugong_app", "schema_version": "v1.1", "payload": {}}
 {"event_type": "mode_change", "timestamp": "2026-02-17T10:32:16.006068+00:00", "event_id": "df733e2b917d4e24951ce82ac3f30266", "source": "dugong_app", "schema_version": "v1.1", "payload": {"mode": "study"}}
+{"event_type": "state_tick", "timestamp": "2026-02-17T10:32:30.918781+00:00", "event_id": "73e4b98f59a44342b08ebb0e797233db", "source": "dugong_app", "schema_version": "v1.1", "payload": {"energy": 69, "mood": 78, "focus": 65, "mode": "study", "tick_count": 6, "tick_seconds": 60}}
