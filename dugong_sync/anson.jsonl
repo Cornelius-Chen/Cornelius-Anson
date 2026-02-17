@@ -1,0 +1,1 @@
+{"version": "v1.1", "sender": "anson", "receiver": "*", "event": {"event_type": "click", "timestamp": "2026-02-17T12:34:01.666035+00:00", "event_id": "9350a2a4c6434b83879a524bc3398f52", "source": "anson", "schema_version": "v1.1", "payload": {}}, "event_id": "9350a2a4c6434b83879a524bc3398f52", "source": "anson", "schema_version": "v1.1"}
