@@ -63,3 +63,29 @@
   - `tk_popup` 后增加 `grab_release()`，避免菜单抓取导致交互异常。
 - Validation:
   - `python -m pytest` -> 5 passed
+
+## 2026-02-17 04:26:00
+- Scope: 因 UI 未完全实现导致的待办说明（给 Anson）。
+- Blocked By UI:
+  - 目前只有基础文本 UI，尚未实现 sprite/皮肤资源加载与状态动画切换。
+  - 未实现气泡样式分级（按 mode + stat 区分语气/颜色/时长）。
+  - 未实现窗口边缘吸附、缩放策略与多分辨率适配。
+  - 未实现右键菜单的视觉化（当前为系统原生 menu）。
+- Anson Action Plan:
+  - 仅修改 `dugong/dugong_app/ui/*`，尽量不改 `dugong/dugong_app/controller.py`。
+  - 在 `dugong/dugong_app/ui/renderer.py` 增加：
+    - `sprite_for(state)` 返回可映射到 assets 的稳定 key（如 `sleepy/focused/happy/neutral` 细化版）。
+    - `bubble_for_click(state)` 按 `mode` 和数值区间返回更细粒度文案与样式 key。
+  - 在 `dugong/dugong_app/ui/shell_qt.py` 增加：
+    - 资源加载层（从 `ui/assets/` 读取图片/帧）。
+    - `update_view` 中根据 sprite key 切图，而不是只改标题文字。
+    - 保持现有事件接口不变：`on_mode_change(mode)`、`on_click()`。
+- Interface Contract (Do Not Break):
+  - `DugongShell(on_mode_change, on_click)`
+  - `DugongShell.update_view(sprite: str, state_text: str, bubble: str | None)`
+  - `Renderer.sprite_for(state) -> str`
+  - `Renderer.bubble_for_click(state) -> str`
+- Acceptance:
+  - `python -m pytest` 通过。
+  - `python -m dugong_app.main` 可启动。
+  - 右键可切换 mode；点击有 bubble；不同状态可看到不同 sprite（不再只是文本）。
