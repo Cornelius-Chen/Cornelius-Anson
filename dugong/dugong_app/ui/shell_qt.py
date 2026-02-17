@@ -66,7 +66,7 @@ class DugongShell:
 
         self.root = tk.Tk()
         self.root.title("Dugong V1")
-        self.root.geometry("260x220+120+120")
+        self.root.geometry("380x220+120+120")
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
 
@@ -161,7 +161,7 @@ class DugongShell:
             bg="#1d3a57",
             activebackground="#2a577f",
             activeforeground="white",
-            padx=10,
+            padx=6,
             pady=4,
             cursor="hand2",
         )
@@ -176,7 +176,7 @@ class DugongShell:
             bg="#275e44",
             activebackground="#2f7f5d",
             activeforeground="white",
-            padx=10,
+            padx=6,
             pady=4,
             cursor="hand2",
         )
@@ -191,7 +191,7 @@ class DugongShell:
             bg="#6b4f1f",
             activebackground="#8a672a",
             activeforeground="white",
-            padx=10,
+            padx=6,
             pady=4,
             cursor="hand2",
         )
