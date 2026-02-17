@@ -3,6 +3,7 @@
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 
 def utc_now_iso() -> str:
@@ -13,14 +14,19 @@ def utc_now_iso() -> str:
 class DugongEvent:
     event_type: str
     timestamp: str = field(default_factory=utc_now_iso)
+    event_id: str = field(default_factory=lambda: uuid4().hex)
+    source: str = "dugong_app"
+    schema_version: str = "v1.1"
     payload: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def state_tick_event(state_dict: dict[str, Any]) -> DugongEvent:
-    return DugongEvent(event_type="state_tick", payload=state_dict)
+def state_tick_event(state_dict: dict[str, Any], tick_seconds: int = 60) -> DugongEvent:
+    payload = dict(state_dict)
+    payload["tick_seconds"] = int(tick_seconds)
+    return DugongEvent(event_type="state_tick", payload=payload)
 
 
 def mode_change_event(mode: str) -> DugongEvent:
@@ -29,3 +35,7 @@ def mode_change_event(mode: str) -> DugongEvent:
 
 def click_event() -> DugongEvent:
     return DugongEvent(event_type="click", payload={})
+
+
+def manual_ping_event(message: str = "manual_ping") -> DugongEvent:
+    return DugongEvent(event_type="manual_ping", payload={"message": message})

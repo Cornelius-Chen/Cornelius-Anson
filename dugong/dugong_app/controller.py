@@ -1,12 +1,15 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from pathlib import Path
 
 from dugong_app.core.event_bus import EventBus
-from dugong_app.core.events import click_event, mode_change_event, state_tick_event
+from dugong_app.core.events import click_event, manual_ping_event, mode_change_event, state_tick_event
 from dugong_app.core.rules import apply_tick, switch_mode
+from dugong_app.persistence.event_journal import EventJournal
 from dugong_app.persistence.storage_json import JsonStorage
+from dugong_app.persistence.summary_json import SummaryStorage
+from dugong_app.services.daily_summary import summarize_events
 from dugong_app.ui.renderer import Renderer
 from dugong_app.ui.shell_qt import DugongShell
 
@@ -19,14 +22,32 @@ class DugongController:
         self.renderer = Renderer()
         self.state = self.storage.load()
 
-        self.shell = DugongShell(
-            on_mode_change=self.on_mode_change,
-            on_click=self.on_click,
-        )
+        root_dir = Path(storage_path).resolve().parent
+        retention_days = int(os.getenv("DUGONG_JOURNAL_RETENTION_DAYS", "30"))
+        self.journal = EventJournal(root_dir / "event_journal.jsonl", retention_days=retention_days)
+        self.summary_storage = SummaryStorage(root_dir / "daily_summary.json")
+
+        self.shell = self._create_shell()
         self.bus.subscribe("*", self._on_any_event)
 
-    def _on_any_event(self, _event) -> None:
+    def _create_shell(self) -> DugongShell:
+        try:
+            return DugongShell(
+                on_mode_change=self.on_mode_change,
+                on_click=self.on_click,
+                on_manual_ping=self.on_manual_ping,
+            )
+        except TypeError:
+            return DugongShell(
+                on_mode_change=self.on_mode_change,
+                on_click=self.on_click,
+            )
+
+    def _on_any_event(self, event) -> None:
         self.storage.save(self.state)
+        self.journal.append(event)
+        summary = summarize_events(self.journal.load_all())
+        self.summary_storage.save(summary)
 
     def _state_text(self) -> str:
         return f"E:{self.state.energy} M:{self.state.mood} F:{self.state.focus} [{self.state.mode}]"
@@ -45,9 +66,13 @@ class DugongController:
         bubble = self.renderer.bubble_for_click(self.state)
         self.refresh(bubble=bubble)
 
+    def on_manual_ping(self, message: str = "manual_ping") -> None:
+        self.bus.emit(manual_ping_event(message))
+        self.refresh(bubble="Signal sent")
+
     def on_tick(self) -> None:
         self.state = apply_tick(self.state, tick_seconds=self.tick_seconds)
-        self.bus.emit(state_tick_event(self.state.to_dict()))
+        self.bus.emit(state_tick_event(self.state.to_dict(), tick_seconds=self.tick_seconds))
         self.refresh()
 
     def run(self) -> None:

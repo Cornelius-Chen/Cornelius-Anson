@@ -56,9 +56,11 @@ class DugongShell:
         self,
         on_mode_change: Callable[[str], None],
         on_click: Callable[[], None],
+        on_manual_ping: Callable[[str], None] | None = None,
     ) -> None:
         self._on_mode_change = on_mode_change
         self._on_click = on_click
+        self._on_manual_ping = on_manual_ping
 
         self.root = tk.Tk()
         self.root.title("Dugong V1")
@@ -71,6 +73,15 @@ class DugongShell:
         t = apply_transparency(self.root, TRANSPARENT_KEY)
         self.BG = t["bg"]
         print("[UI] platform:", sys.platform, "transparency:", t)
+
+        # Visual style (font + color only)
+        self.TITLE_FONT = ("Avenir Next", 13, "bold")
+        self.PET_FONT = ("Avenir Next", 48)
+        self.STATE_FONT = ("Menlo", 10)
+        self.BUBBLE_FONT = ("Avenir Next", 11)
+        self.TITLE_FG = "#0f3d2f"
+        self.STATE_FG = "#245846"
+        self.BUBBLE_FG = "#1f6a55"
 
         # drag state
         self._drag_origin_x = 0
@@ -86,19 +97,19 @@ class DugongShell:
 
         # Title
         self.title_label = tk.Label(
-            self.frame, text="Dugong", bg=self.BG, font=("TkDefaultFont", 12, "bold")
+            self.frame, text="Dugong", bg=self.BG, fg=self.TITLE_FG, font=self.TITLE_FONT
         )
         self.title_label.pack(pady=(10, 2))
 
         # Big pet emoji
         self.pet_label = tk.Label(
-            self.frame, text="🦭", bg=self.BG, font=("TkDefaultFont", 48)
+            self.frame, text="🦭", bg=self.BG, fg="#1a4f3d", font=self.PET_FONT
         )
         self.pet_label.pack(pady=(2, 2))
 
         # State line
         self.state_label = tk.Label(
-            self.frame, text="state", bg=self.BG, font=("TkFixedFont", 10)
+            self.frame, text="state", bg=self.BG, fg=self.STATE_FG, font=self.STATE_FONT
         )
         self.state_label.pack(pady=2)
 
@@ -107,19 +118,21 @@ class DugongShell:
             self.frame,
             text="",
             bg=self.BG,
-            fg="#174a7a",
+            fg=self.BUBBLE_FG,
+            font=self.BUBBLE_FONT,
             wraplength=240,
             justify="center",
         )
         self.bubble_label.pack(pady=(6, 8))
 
-        # ---- Hover Action Bar (study/chill/rest) ----
-        self.option_bar = tk.Frame(self.frame, bg="#0f2033")
+        # ---- Hover Action Bar (study/chill/rest/ping) ----
+        self.option_bar = tk.Frame(self.frame, bg="#123629")
         self.option_bar.place_forget()
 
         self._mk_option_btn("study").pack(side=tk.LEFT, padx=6, pady=6)
         self._mk_option_btn("chill").pack(side=tk.LEFT, padx=6, pady=6)
         self._mk_option_btn("rest").pack(side=tk.LEFT, padx=6, pady=6)
+        self._mk_ping_btn().pack(side=tk.LEFT, padx=6, pady=6)
 
         # Bind drag + click on all main widgets
         for w in (self.frame, self.title_label, self.pet_label, self.state_label, self.bubble_label):
@@ -136,6 +149,7 @@ class DugongShell:
         self._menu.add_command(label="study", command=lambda: self._emit_mode("study"))
         self._menu.add_command(label="chill", command=lambda: self._emit_mode("chill"))
         self._menu.add_command(label="rest", command=lambda: self._emit_mode("rest"))
+        self._menu.add_command(label="manual ping", command=self._emit_ping)
         self._menu.add_separator()
         self._menu.add_command(label="quit", command=self.root.destroy)
         self._bind_context_menu(self.frame)
@@ -149,10 +163,27 @@ class DugongShell:
             text=mode,
             command=lambda m=mode: self._emit_mode(m),
             bd=0,
-            fg="white",
-            bg="#1d3a57",
-            activebackground="#2a577f",
-            activeforeground="white",
+            fg="#f3fff8",
+            bg="#1f5a46",
+            activebackground="#2a6f58",
+            activeforeground="#ffffff",
+            font=("Avenir Next", 10, "bold"),
+            padx=10,
+            pady=4,
+            cursor="hand2",
+        )
+
+    def _mk_ping_btn(self) -> tk.Button:
+        return tk.Button(
+            self.option_bar,
+            text="ping",
+            command=self._emit_ping,
+            bd=0,
+            fg="#f7fffb",
+            bg="#2c7a5d",
+            activebackground="#33906d",
+            activeforeground="#ffffff",
+            font=("Avenir Next", 10, "bold"),
             padx=10,
             pady=4,
             cursor="hand2",
@@ -245,6 +276,10 @@ class DugongShell:
 
     def _emit_mode(self, mode: str) -> None:
         self._on_mode_change(mode)
+
+    def _emit_ping(self) -> None:
+        if self._on_manual_ping is not None:
+            self._on_manual_ping("checkin")
 
     # ---------- Controller contract ----------
     def schedule_every(self, seconds: int, callback: Callable[[], None]) -> None:

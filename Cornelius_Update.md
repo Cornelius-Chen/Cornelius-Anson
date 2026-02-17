@@ -89,3 +89,65 @@
   - `python -m pytest` 通过。
   - `python -m dugong_app.main` 可启动。
   - 右键可切换 mode；点击有 bubble；不同状态可看到不同 sprite（不再只是文本）。
+
+## 2026-02-17 05:02:00
+- Scope: v1.1-core upgrade (behavior history + protocol extensibility + manual signal).
+- Files:
+  - `dugong/dugong_app/core/events.py`
+  - `dugong/dugong_app/interaction/protocol.py`
+  - `dugong/dugong_app/controller.py`
+  - `dugong/dugong_app/persistence/event_journal.py`
+  - `dugong/dugong_app/persistence/summary_json.py`
+  - `dugong/dugong_app/services/daily_summary.py`
+  - `dugong/tests/test_protocol.py`
+  - `dugong/tests/test_event_journal_and_summary.py`
+  - `dugong/dugong_app/__init__.py`
+  - `dugong/README.md`
+- Changes:
+  - `DugongEvent` 扩展 `event_id/source/schema_version`，新增 `manual_ping_event`。
+  - 协议升级为 `v1.1`：Envelope 增加 `event_id/source/schema_version`，并保持 v1 解码兼容。
+  - 新增 `event_journal.jsonl` 事件日志持久化（append-only）。
+  - 新增 `daily_summary.json` 聚合（focus_seconds/mode_changes/clicks/manual_pings/current_streak_days）。
+  - 控制器在每次事件后自动：保存 state -> 写 journal -> 刷 summary。
+  - 控制器新增 `on_manual_ping()`；UI 若支持可直接注入，不支持则自动回退旧 UI 构造方式。
+  - 版本号更新：`dugong_app.__version__ = 0.2.0`。
+- Validation:
+  - `python -m pytest` -> 8 passed
+  - `python -c "from dugong_app.main import create_default_controller; c=create_default_controller(); print(type(c).__name__)"` -> DugongController
+- UI Follow-up for Anson:
+  - 若要在 UI 暴露“手动信号”，在 `DugongShell` 增加一个轻量入口（按钮或快捷键）调用 `on_manual_ping("...")`。
+  - 入口是可选增强，不影响 core；当前 controller 已兼容“有/无该回调”两种 UI 版本。
+
+## 2026-02-17 05:12:00
+- Scope: v1.1-core 继续推进，打通 UI manual_ping 入口（不破坏旧接口）。
+- Files:
+  - `dugong/dugong_app/ui/shell_qt.py`
+- Changes:
+  - `DugongShell.__init__` 增加可选参数 `on_manual_ping`，默认 `None`，保持向后兼容。
+  - Hover Action Bar 新增 `ping` 按钮，触发 `on_manual_ping("checkin")`。
+  - 右键菜单新增 `manual ping` 项，作为备用入口。
+  - 若 UI 未注入该回调则静默忽略，不影响主流程。
+- Validation:
+  - `python -m pytest` -> 8 passed
+
+## 2026-02-17 05:24:00
+- Scope: v1.2-core upgrade (event journal rotation + retention policy).
+- Files:
+  - `dugong/dugong_app/persistence/event_journal.py`
+  - `dugong/dugong_app/controller.py`
+  - `dugong/tests/test_event_journal_and_summary.py`
+  - `dugong/dugong_app/__init__.py`
+  - `dugong/README.md`
+- Changes:
+  - 事件日志由单文件升级为按日分片目录：`event_journal/YYYY-MM-DD.jsonl`。
+  - 新增日志保留策略：仅保留最近 N 天（默认 30 天）。
+  - 向后兼容：旧 `event_journal.jsonl` 仍可读取。
+  - 控制器新增环境变量读取：`DUGONG_JOURNAL_RETENTION_DAYS`。
+  - 新增 retention 测试，验证旧日志自动清理。
+  - 版本更新：`0.3.0`。
+- Validation:
+  - `python -m pytest` -> 9 passed
+  - `python -c "from dugong_app.main import create_default_controller; c=create_default_controller(); print(type(c).__name__)"` -> DugongController
+- UI Follow-up for Anson:
+  - 可选在 UI 提供“最近 N 天日志保留设置”的设置入口（写入 env 或配置文件）。
+  - 可选增加一个“summary preview”入口，读取 `daily_summary.json` 展示 streak/今日 focus。
