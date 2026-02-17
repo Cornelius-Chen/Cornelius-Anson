@@ -3,3 +3,16 @@
 {"event_type": "state_tick", "timestamp": "2026-02-17T10:19:48.179601+00:00", "event_id": "2ec956c411a6472c94e7ba48878c099f", "source": "dugong_app", "schema_version": "v1.1", "payload": {"energy": 72, "mood": 76, "focus": 61, "mode": "chill", "tick_count": 2, "tick_seconds": 60}}
 {"event_type": "click", "timestamp": "2026-02-17T10:19:56.907893+00:00", "event_id": "3b6cca207dab43e2bab58e06eb54bfaf", "source": "dugong_app", "schema_version": "v1.1", "payload": {}}
 {"event_type": "state_tick", "timestamp": "2026-02-17T10:20:48.197371+00:00", "event_id": "6497ccfe0e784d519c0e47235484cf33", "source": "dugong_app", "schema_version": "v1.1", "payload": {"energy": 73, "mood": 79, "focus": 59, "mode": "chill", "tick_count": 3, "tick_seconds": 60}}
+{"event_type": "click", "timestamp": "2026-02-17T10:23:41.614480+00:00", "event_id": "5df56df8016d4730934a06c13185b8e2", "source": "dugong_app", "schema_version": "v1.1", "payload": {}}
+{"event_type": "mode_change", "timestamp": "2026-02-17T10:23:43.599399+00:00", "event_id": "8d7929a6236240849db19b5a66776410", "source": "dugong_app", "schema_version": "v1.1", "payload": {"mode": "rest"}}
+{"event_type": "manual_ping", "timestamp": "2026-02-17T10:23:44.315984+00:00", "event_id": "aa995c9f78b845008431c0d69f3abd82", "source": "dugong_app", "schema_version": "v1.1", "payload": {"message": "checkin"}}
+{"event_type": "mode_change", "timestamp": "2026-02-17T10:23:45.059306+00:00", "event_id": "a14f7cdf57b640aa8e643b5fd60152ed", "source": "dugong_app", "schema_version": "v1.1", "payload": {"mode": "chill"}}
+{"event_type": "mode_change", "timestamp": "2026-02-17T10:23:45.487468+00:00", "event_id": "f9d47f857f4549cea71e74f3f6f18740", "source": "dugong_app", "schema_version": "v1.1", "payload": {"mode": "study"}}
+{"event_type": "click", "timestamp": "2026-02-17T10:25:08.817455+00:00", "event_id": "47d643ab2e1f4ccb9c4e0e0ef000af30", "source": "dugong_app", "schema_version": "v1.1", "payload": {}}
+{"event_type": "mode_change", "timestamp": "2026-02-17T10:25:11.617170+00:00", "event_id": "e909f31c15fe486cad80c85feef65e79", "source": "dugong_app", "schema_version": "v1.1", "payload": {"mode": "chill"}}
+{"event_type": "click", "timestamp": "2026-02-17T10:25:13.994442+00:00", "event_id": "1d2f7571145f4e6da14f2a1dc9bbe894", "source": "dugong_app", "schema_version": "v1.1", "payload": {}}
+{"event_type": "click", "timestamp": "2026-02-17T10:25:15.406182+00:00", "event_id": "edcbbab7dd5f402e85610ff89de519c4", "source": "dugong_app", "schema_version": "v1.1", "payload": {}}
+{"event_type": "mode_change", "timestamp": "2026-02-17T10:25:16.683612+00:00", "event_id": "879c91ca9e784ef0b6c9ca7df5ee94ec", "source": "dugong_app", "schema_version": "v1.1", "payload": {"mode": "rest"}}
+{"event_type": "click", "timestamp": "2026-02-17T10:25:17.951695+00:00", "event_id": "e28765c2a6c04dd5aa6bea04268e699b", "source": "dugong_app", "schema_version": "v1.1", "payload": {}}
+{"event_type": "manual_ping", "timestamp": "2026-02-17T10:25:20.901914+00:00", "event_id": "679d6a2c87af41bfa59e444a1751a5c5", "source": "dugong_app", "schema_version": "v1.1", "payload": {"message": "checkin"}}
+{"event_type": "click", "timestamp": "2026-02-17T10:25:22.556194+00:00", "event_id": "2e7b7b04c2d14201bd232c8cea115483", "source": "dugong_app", "schema_version": "v1.1", "payload": {}}

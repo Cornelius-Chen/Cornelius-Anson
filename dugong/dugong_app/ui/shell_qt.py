@@ -74,15 +74,6 @@ class DugongShell:
         self.BG = t["bg"]
         print("[UI] platform:", sys.platform, "transparency:", t)
 
-        # Visual style (font + color only)
-        self.TITLE_FONT = ("Avenir Next", 13, "bold")
-        self.PET_FONT = ("Avenir Next", 48)
-        self.STATE_FONT = ("Menlo", 10)
-        self.BUBBLE_FONT = ("Avenir Next", 11)
-        self.TITLE_FG = "#0f3d2f"
-        self.STATE_FG = "#245846"
-        self.BUBBLE_FG = "#1f6a55"
-
         # drag state
         self._drag_origin_x = 0
         self._drag_origin_y = 0
@@ -97,19 +88,19 @@ class DugongShell:
 
         # Title
         self.title_label = tk.Label(
-            self.frame, text="Dugong", bg=self.BG, fg=self.TITLE_FG, font=self.TITLE_FONT
+            self.frame, text="Dugong", bg=self.BG, font=("TkDefaultFont", 12, "bold")
         )
         self.title_label.pack(pady=(10, 2))
 
         # Big pet emoji
         self.pet_label = tk.Label(
-            self.frame, text="🦭", bg=self.BG, fg="#1a4f3d", font=self.PET_FONT
+            self.frame, text="🦭", bg=self.BG, font=("TkDefaultFont", 48)
         )
         self.pet_label.pack(pady=(2, 2))
 
         # State line
         self.state_label = tk.Label(
-            self.frame, text="state", bg=self.BG, fg=self.STATE_FG, font=self.STATE_FONT
+            self.frame, text="state", bg=self.BG, font=("TkFixedFont", 10)
         )
         self.state_label.pack(pady=2)
 
@@ -118,15 +109,14 @@ class DugongShell:
             self.frame,
             text="",
             bg=self.BG,
-            fg=self.BUBBLE_FG,
-            font=self.BUBBLE_FONT,
+            fg="#174a7a",
             wraplength=240,
             justify="center",
         )
         self.bubble_label.pack(pady=(6, 8))
 
         # ---- Hover Action Bar (study/chill/rest/ping) ----
-        self.option_bar = tk.Frame(self.frame, bg="#123629")
+        self.option_bar = tk.Frame(self.frame, bg="#0f2033")
         self.option_bar.place_forget()
 
         self._mk_option_btn("study").pack(side=tk.LEFT, padx=6, pady=6)
@@ -163,11 +153,10 @@ class DugongShell:
             text=mode,
             command=lambda m=mode: self._emit_mode(m),
             bd=0,
-            fg="#f3fff8",
-            bg="#1f5a46",
-            activebackground="#2a6f58",
-            activeforeground="#ffffff",
-            font=("Avenir Next", 10, "bold"),
+            fg="white",
+            bg="#1d3a57",
+            activebackground="#2a577f",
+            activeforeground="white",
             padx=10,
             pady=4,
             cursor="hand2",
@@ -179,11 +168,10 @@ class DugongShell:
             text="ping",
             command=self._emit_ping,
             bd=0,
-            fg="#f7fffb",
-            bg="#2c7a5d",
-            activebackground="#33906d",
-            activeforeground="#ffffff",
-            font=("Avenir Next", 10, "bold"),
+            fg="white",
+            bg="#275e44",
+            activebackground="#2f7f5d",
+            activeforeground="white",
             padx=10,
             pady=4,
             cursor="hand2",
