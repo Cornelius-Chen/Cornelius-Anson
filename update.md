@@ -28,3 +28,13 @@
   - ...
 - Validation:
   - command -> result
+
+## 2026-02-17 04:00:00
+- Scope: 修复 `dugong_app.main` 语法错误（`from __future__` 不在文件顶部）。
+- Files:
+  - `dugong/dugong_app/main.py`
+- Changes:
+  - 清理重复拼接内容，恢复为单一、可运行的控制器入口文件。
+- Validation:
+  - `python -m pytest` -> 4 passed
+  - `python -c "import dugong_app.main as m; print('ok', hasattr(m, 'create_default_controller'))"` -> ok True
