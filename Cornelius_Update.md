@@ -209,3 +209,17 @@
   - Updated docs with github setup variables and demo steps.
 - Validation:
   - `python -m pytest` -> 14 passed
+
+## 2026-02-17 07:18:00
+- Scope: sync responsiveness upgrade (auto-fast + manual sync now).
+- Files:
+  - `dugong/dugong_app/controller.py`
+  - `dugong/dugong_app/ui/shell_qt.py`
+  - `dugong/README.md`
+- Changes:
+  - Default sync interval reduced to 10s (`DUGONG_SYNC_INTERVAL_SECONDS`).
+  - Run startup now triggers immediate sync once.
+  - Added manual sync entry: option bar `sync` button + context menu `sync now`.
+  - Controller added `on_sync_now()` with instant feedback bubble (`Sync now: +N` / `Sync failed`).
+- Validation:
+  - `python -m pytest` -> 14 passed

@@ -57,10 +57,12 @@ class DugongShell:
         on_mode_change: Callable[[str], None],
         on_click: Callable[[], None],
         on_manual_ping: Callable[[str], None] | None = None,
+        on_sync_now: Callable[[], None] | None = None,
     ) -> None:
         self._on_mode_change = on_mode_change
         self._on_click = on_click
         self._on_manual_ping = on_manual_ping
+        self._on_sync_now = on_sync_now
 
         self.root = tk.Tk()
         self.root.title("Dugong V1")
@@ -115,7 +117,7 @@ class DugongShell:
         )
         self.bubble_label.pack(pady=(6, 8))
 
-        # ---- Hover Action Bar (study/chill/rest/ping) ----
+        # ---- Hover Action Bar (study/chill/rest/ping/sync) ----
         self.option_bar = tk.Frame(self.frame, bg="#0f2033")
         self.option_bar.place_forget()
 
@@ -123,6 +125,7 @@ class DugongShell:
         self._mk_option_btn("chill").pack(side=tk.LEFT, padx=6, pady=6)
         self._mk_option_btn("rest").pack(side=tk.LEFT, padx=6, pady=6)
         self._mk_ping_btn().pack(side=tk.LEFT, padx=6, pady=6)
+        self._mk_sync_btn().pack(side=tk.LEFT, padx=6, pady=6)
 
         # Bind drag + click on all main widgets
         for w in (self.frame, self.title_label, self.pet_label, self.state_label, self.bubble_label):
@@ -140,6 +143,7 @@ class DugongShell:
         self._menu.add_command(label="chill", command=lambda: self._emit_mode("chill"))
         self._menu.add_command(label="rest", command=lambda: self._emit_mode("rest"))
         self._menu.add_command(label="manual ping", command=self._emit_ping)
+        self._menu.add_command(label="sync now", command=self._emit_sync_now)
         self._menu.add_separator()
         self._menu.add_command(label="quit", command=self.root.destroy)
         self._bind_context_menu(self.frame)
@@ -171,6 +175,21 @@ class DugongShell:
             fg="white",
             bg="#275e44",
             activebackground="#2f7f5d",
+            activeforeground="white",
+            padx=10,
+            pady=4,
+            cursor="hand2",
+        )
+
+    def _mk_sync_btn(self) -> tk.Button:
+        return tk.Button(
+            self.option_bar,
+            text="sync",
+            command=self._emit_sync_now,
+            bd=0,
+            fg="white",
+            bg="#6b4f1f",
+            activebackground="#8a672a",
             activeforeground="white",
             padx=10,
             pady=4,
@@ -268,6 +287,10 @@ class DugongShell:
     def _emit_ping(self) -> None:
         if self._on_manual_ping is not None:
             self._on_manual_ping("checkin")
+
+    def _emit_sync_now(self) -> None:
+        if self._on_sync_now is not None:
+            self._on_sync_now()
 
     # ---------- Controller contract ----------
     def schedule_every(self, seconds: int, callback: Callable[[], None]) -> None:

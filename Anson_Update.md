@@ -90,3 +90,10 @@
   - Remote reflection still via current bubble + `R:/S:` state text.
 - Optional UI next step (minimal):
   - make `S:ok/fail/disabled` more visible as color dot; no API change needed.
+
+## 2026-02-17 07:18:00
+- Scope: quick sync UX added.
+- UI changes already landed:
+  - new `sync` button in action bar
+  - new `sync now` in context menu
+- No further UI change required for this step.

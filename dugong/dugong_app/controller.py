@@ -23,7 +23,7 @@ class DugongController:
     def __init__(self, storage_path: str | Path, tick_seconds: int = 60) -> None:
         self.tick_seconds = tick_seconds
         self.source_id = os.getenv("DUGONG_SOURCE_ID", "unknown")
-        self.sync_interval_seconds = int(os.getenv("DUGONG_SYNC_INTERVAL_SECONDS", "60"))
+        self.sync_interval_seconds = int(os.getenv("DUGONG_SYNC_INTERVAL_SECONDS", "10"))
 
         self.bus = EventBus()
         self.storage = JsonStorage(storage_path)
@@ -77,6 +77,7 @@ class DugongController:
                 on_mode_change=self.on_mode_change,
                 on_click=self.on_click,
                 on_manual_ping=self.on_manual_ping,
+                on_sync_now=self.on_sync_now,
             )
         except TypeError:
             return DugongShell(
@@ -157,8 +158,18 @@ class DugongController:
         else:
             self.refresh()
 
+    def on_sync_now(self) -> None:
+        result = self.sync_engine.sync_once()
+        self.sync_status = result.get("status", "fail")
+        if result.get("status") == "fail":
+            self.refresh(bubble="Sync failed")
+            return
+        imported = int(result.get("imported", 0))
+        self.refresh(bubble=f"Sync now: +{imported}")
+
     def run(self) -> None:
         self.refresh(bubble=f"Dugong online [{self.source_id}]")
+        self.on_sync_now()
         self.shell.schedule_every(self.tick_seconds, self.on_tick)
         self.shell.schedule_every(self.sync_interval_seconds, self.on_sync_tick)
         self.shell.run()

@@ -40,7 +40,7 @@ If `github`:
 Optional env:
 
 - `DUGONG_TICK_SECONDS` (default `60`)
-- `DUGONG_SYNC_INTERVAL_SECONDS` (default `60`)
+- `DUGONG_SYNC_INTERVAL_SECONDS` (default `10`)
 - `DUGONG_JOURNAL_RETENTION_DAYS` (default `30`)
 
 ## Demo script (2 machines)
@@ -56,3 +56,4 @@ GitHub mode demo:
 1. Set same repo/token permissions and same `DUGONG_GITHUB_FOLDER`.
 2. Use different `DUGONG_SOURCE_ID` on A/B.
 3. A clicks `ping`; B should reflect within one sync interval.
+
