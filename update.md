@@ -52,3 +52,14 @@
 - Validation:
   - `python -m pytest` -> 5 passed
   - `python -c "from dugong_app.main import create_default_controller; c=create_default_controller(); print(type(c).__name__)"` -> DugongController
+
+## 2026-02-17 04:13:00
+- Scope: 修复 macOS 下右键无法弹出模式菜单的问题。
+- Files:
+  - `dugong/dugong_app/ui/shell_qt.py`
+- Changes:
+  - 上下文菜单绑定扩展为 `<Button-2>`、`<Button-3>`、`<Control-Button-1>`，兼容不同 Tk/macOS 事件映射。
+  - 将点击/右键绑定覆盖到 `frame/title_label/state_label/bubble_label`，避免点在子控件上无响应。
+  - `tk_popup` 后增加 `grab_release()`，避免菜单抓取导致交互异常。
+- Validation:
+  - `python -m pytest` -> 5 passed

@@ -37,9 +37,12 @@ class DugongShell:
         self._bind_drag(self.frame)
         self._bind_drag(self.title_label)
         self._bind_drag(self.state_label)
+        self._bind_drag(self.bubble_label)
 
         self.frame.bind("<Button-1>", self._handle_click)
-        self.frame.bind("<Button-3>", self._open_menu)
+        self.title_label.bind("<Button-1>", self._handle_click)
+        self.state_label.bind("<Button-1>", self._handle_click)
+        self.bubble_label.bind("<Button-1>", self._handle_click)
 
         self._menu = tk.Menu(self.root, tearoff=0)
         self._menu.add_command(label="study", command=lambda: self._on_mode_change("study"))
@@ -51,7 +54,15 @@ class DugongShell:
     def _bind_drag(self, widget: tk.Widget) -> None:
         widget.bind("<ButtonPress-1>", self._drag_start)
         widget.bind("<B1-Motion>", self._drag_move)
+        self._bind_context_menu(widget)
+
+    def _bind_context_menu(self, widget: tk.Widget) -> None:
+        # Cross-platform context menu bindings:
+        # - Windows/Linux: Button-3
+        # - macOS Tk variants: Button-2 or Control-Button-1
+        widget.bind("<Button-2>", self._open_menu)
         widget.bind("<Button-3>", self._open_menu)
+        widget.bind("<Control-Button-1>", self._open_menu)
 
     def _drag_start(self, event: tk.Event) -> None:
         self._drag_origin_x = event.x
@@ -63,7 +74,10 @@ class DugongShell:
         self.root.geometry(f"+{x}+{y}")
 
     def _open_menu(self, event: tk.Event) -> None:
-        self._menu.tk_popup(event.x_root, event.y_root)
+        try:
+            self._menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._menu.grab_release()
 
     def _handle_click(self, _event: tk.Event) -> None:
         self._on_click()
