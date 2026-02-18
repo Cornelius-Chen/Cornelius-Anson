@@ -39,7 +39,7 @@ class SyncEngine:
 
     def sync_once(self) -> dict:
         if self.transport is None:
-            return {"status": "disabled", "imported": 0}
+            return {"status": "disabled", "imported": 0, "events": []}
 
         try:
             payloads = self.transport.receive()
@@ -63,7 +63,7 @@ class SyncEngine:
                 self.on_remote_events(imported)
 
             self.last_status = "ok"
-            return {"status": "ok", "imported": len(imported)}
+            return {"status": "ok", "imported": len(imported), "events": imported}
         except Exception as exc:
             self.last_status = "fail"
-            return {"status": "fail", "imported": 0, "error": str(exc)}
+            return {"status": "fail", "imported": 0, "error": str(exc), "events": []}

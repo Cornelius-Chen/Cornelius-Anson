@@ -122,11 +122,11 @@
     },
     {
       "start_at": "2026-02-18T05:49:05.251419+00:00",
-      "end_at": null,
-      "duration_seconds": 7,
+      "end_at": "2026-02-18T06:08:47.659625+00:00",
+      "duration_seconds": 1182,
       "start_event_id": "a4719726928448f5b8cd92e9e828357f",
-      "end_event_id": null,
-      "ended_by": "open"
+      "end_event_id": "7285a2532d2d42f19f1086361be8ab30",
+      "ended_by": "mode_change"
     }
   ]
 }

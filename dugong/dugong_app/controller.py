@@ -1,13 +1,15 @@
 ﻿from __future__ import annotations
 
 import os
+import queue
+import threading
 from pathlib import Path
 
 from dugong_app.core.event_bus import EventBus
 from dugong_app.core.events import click_event, manual_ping_event, mode_change_event, state_tick_event
-from dugong_app.interaction.transport_github import GithubTransport
 from dugong_app.core.rules import apply_tick, switch_mode
 from dugong_app.interaction.transport_file import FileTransport
+from dugong_app.interaction.transport_github import GithubTransport
 from dugong_app.persistence.event_journal import EventJournal
 from dugong_app.persistence.focus_sessions_json import FocusSessionsStorage
 from dugong_app.persistence.storage_json import JsonStorage
@@ -44,8 +46,16 @@ class DugongController:
             source_id=self.source_id,
             journal=self.journal,
             transport=transport,
-            on_remote_events=self._on_remote_events,
+            on_remote_events=None,
         )
+
+        self._jobs: queue.Queue[dict] = queue.Queue()
+        self._results: queue.Queue[dict] = queue.Queue()
+        self._sync_lock = threading.Lock()
+        self._sync_pending = False
+
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
 
         self.shell = self._create_shell()
         self.bus.subscribe("*", self._on_any_event)
@@ -92,6 +102,45 @@ class DugongController:
         self.summary_storage.save(summary)
         self.focus_sessions_storage.save(focus_sessions)
 
+    def _worker_loop(self) -> None:
+        while True:
+            job = self._jobs.get()
+            kind = job.get("kind")
+
+            if kind == "local_event":
+                event = job["event"]
+                self.journal.append(event)
+                self._rebuild_derived()
+
+                status = "ok"
+                try:
+                    self.sync_engine.publish_local_event(event)
+                    status = self.sync_engine.last_status
+                except Exception:
+                    status = "fail"
+
+                self._results.put({"kind": "local_done", "status": status})
+
+            elif kind == "sync":
+                manual = bool(job.get("manual", False))
+                result = self.sync_engine.sync_once()
+                status = result.get("status", "fail")
+                imported = int(result.get("imported", 0))
+                imported_events = result.get("events", [])
+
+                if imported > 0:
+                    self._rebuild_derived()
+
+                self._results.put(
+                    {
+                        "kind": "sync_done",
+                        "status": status,
+                        "imported": imported,
+                        "events": imported_events,
+                        "manual": manual,
+                    }
+                )
+
     def _remote_bubble(self, event) -> str:
         if event.event_type == "manual_ping":
             return f"[{event.source}] pinged you"
@@ -102,22 +151,43 @@ class DugongController:
             return f"[{event.source}] state updated"
         return f"[{event.source}] event: {event.event_type}"
 
-    def _on_remote_events(self, events) -> None:
-        self.unread_remote_count += len(events)
-        self._rebuild_derived()
-        if events:
-            self.refresh(bubble=self._remote_bubble(events[-1]))
+    def _drain_worker_results(self) -> None:
+        changed = False
+        bubble: str | None = None
 
-    def _on_any_event(self, event) -> None:
-        self.storage.save(self.state)
-        self.journal.append(event)
-        self._rebuild_derived()
+        while True:
+            try:
+                result = self._results.get_nowait()
+            except queue.Empty:
+                break
 
-        try:
-            self.sync_engine.publish_local_event(event)
-            self.sync_status = self.sync_engine.last_status
-        except Exception:
-            self.sync_status = "fail"
+            kind = result.get("kind")
+
+            if kind == "local_done":
+                self.sync_status = result.get("status", "fail")
+                changed = True
+
+            elif kind == "sync_done":
+                self.sync_status = result.get("status", "fail")
+                imported = int(result.get("imported", 0))
+                events = result.get("events", [])
+                manual = bool(result.get("manual", False))
+                changed = True
+
+                with self._sync_lock:
+                    self._sync_pending = False
+
+                if self.sync_status == "fail":
+                    bubble = "Sync failed"
+                elif imported > 0:
+                    self.unread_remote_count += imported
+                    if events:
+                        bubble = self._remote_bubble(events[-1])
+                elif manual:
+                    bubble = "Sync now: +0"
+
+        if changed or bubble is not None:
+            self.refresh(bubble=bubble)
 
     def _state_text(self) -> str:
         return (
@@ -128,6 +198,10 @@ class DugongController:
     def refresh(self, bubble: str | None = None) -> None:
         sprite = self.renderer.sprite_for(self.state)
         self.shell.update_view(sprite=sprite, state_text=self._state_text(), bubble=bubble)
+
+    def _on_any_event(self, event) -> None:
+        self.storage.save(self.state)
+        self._jobs.put({"kind": "local_event", "event": event})
 
     def on_mode_change(self, mode: str) -> None:
         self.state = switch_mode(self.state, mode)
@@ -150,28 +224,26 @@ class DugongController:
         self.bus.emit(state_tick_event(self.state.to_dict(), tick_seconds=self.tick_seconds, source=self.source_id))
         self.refresh()
 
+    def _enqueue_sync(self, manual: bool) -> None:
+        with self._sync_lock:
+            if self._sync_pending:
+                return
+            self._sync_pending = True
+        self._jobs.put({"kind": "sync", "manual": manual})
+
     def on_sync_tick(self) -> None:
-        result = self.sync_engine.sync_once()
-        self.sync_status = result.get("status", "fail")
-        if result.get("status") == "fail":
-            self.refresh(bubble="Sync failed")
-        else:
-            self.refresh()
+        self._enqueue_sync(manual=False)
 
     def on_sync_now(self) -> None:
-        result = self.sync_engine.sync_once()
-        self.sync_status = result.get("status", "fail")
-        if result.get("status") == "fail":
-            self.refresh(bubble="Sync failed")
-            return
-        imported = int(result.get("imported", 0))
-        self.refresh(bubble=f"Sync now: +{imported}")
+        self._enqueue_sync(manual=True)
+        self.refresh(bubble="Syncing...")
 
     def run(self) -> None:
         self.refresh(bubble=f"Dugong online [{self.source_id}]")
         self.on_sync_now()
         self.shell.schedule_every(self.tick_seconds, self.on_tick)
         self.shell.schedule_every(self.sync_interval_seconds, self.on_sync_tick)
+        self.shell.schedule_every(1, self._drain_worker_results)
         self.shell.run()
 
 
