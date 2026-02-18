@@ -373,3 +373,33 @@
   - `python scripts/stress_sync.py --clean --hours 0.005` -> OK
   - `python scripts/stress_sync.py --clean --hours 0.002` -> OK (progress bar shown)
   - `python -m pytest -q tests\\test_entrypoint.py` -> 1 passed
+
+## 2026-02-18 11:09:07
+- Scope: UI asset integration upgrade (Anson asset pack + runtime left mirror).
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/ui/assets/README.md
+- Changes:
+  - Auto-load and use animation groups: Swim_loop / Idle_loop / Turn / React_happy/chill/dumb.
+  - Added runtime left-facing mirror generation from right-facing PNG frames.
+  - Added free-move state machine: swim, idle, turn, react with boundary turn-around.
+  - Mode/sprite/bubble now map to react frames so all provided UI assets are used.
+  - Kept DugongShell interface contract unchanged.
+- Validation:
+  - python -m py_compile dugong/dugong_app/ui/shell_qt.py -> ok
+  - (cd dugong) python -m pytest -> 31 passed
+
+## 2026-02-18 11:16:58
+- Scope: roaming behavior upgrade + react_shock integration.
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/ui/assets/README.md
+- Changes:
+  - Replaced horizontal-only move with 2D random roaming (random targets across X/Y area).
+  - Added direction-aware steering and boundary-safe target reselection.
+  - Added React_shock loading (React_shock*) with fallback to existing reacts.
+  - Added shock/chill irregular auto-trigger and bubble keyword trigger (ail/offline/auth/error/...).
+  - Kept existing DugongShell API unchanged.
+- Validation:
+  - python -m py_compile dugong/dugong_app/ui/shell_qt.py -> ok
+  - (cd dugong) python -m pytest -> 31 passed
