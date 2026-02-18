@@ -223,7 +223,8 @@ class DugongShell:
             except tk.TclError:
                 continue
 
-        self._pet_frames = self._normalize_frames(frames)
+        self._pet_frames = frames
+        print(f"[UI] loaded pet frames: {len(self._pet_frames)}")
         if self._pet_frames:
             self.pet_label.configure(image=self._pet_frames[0], text="")
             self.pet_label.image = self._pet_frames[0]
@@ -237,22 +238,6 @@ class DugongShell:
         factor = int(math.ceil(scale))
         return frame.subsample(factor, factor)
 
-    def _normalize_frames(self, frames: list[tk.PhotoImage]) -> list[tk.PhotoImage]:
-        if not frames:
-            return []
-
-        target_w = max(frame.width() for frame in frames)
-        target_h = max(frame.height() for frame in frames)
-        normalized: list[tk.PhotoImage] = []
-
-        for frame in frames:
-            canvas = tk.PhotoImage(width=target_w, height=target_h)
-            x = (target_w - frame.width()) // 2
-            y = target_h - frame.height()  # bottom-align to reduce vertical jitter
-            canvas.tk.call(str(canvas), "copy", str(frame), "-to", x, y)
-            normalized.append(canvas)
-
-        return normalized
 
     def _start_pet_animation(self) -> None:
         if len(self._pet_frames) < 2:
