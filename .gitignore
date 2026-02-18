@@ -1,3 +1,26 @@
-Anson_Update.md
-Anson_Update.md
-Anson_Update.md
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local environments
+.venv/
+venv/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+
+# Dugong runtime data (repo-local legacy paths)
+dugong/dugong_state.json
+dugong/daily_summary.json
+dugong/focus_sessions.json
+dugong/sync_cursor.json
+dugong/sync_health.json
+dugong/event_journal/
+dugong/transport_shared/
+dugong_sync/
+
+# Optional local token env files
+.env
+.env.*

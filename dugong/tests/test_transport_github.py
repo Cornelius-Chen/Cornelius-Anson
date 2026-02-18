@@ -26,3 +26,17 @@ def test_github_transport_receive_skips_own_file(monkeypatch) -> None:
     payloads = gt.receive()
     ids = [p.get("event_id") for p in payloads]
     assert ids == ["x1", "x2"]
+
+
+def test_github_transport_receive_incremental_uses_cursor(monkeypatch) -> None:
+    gt = GithubTransport(repo="owner/repo", token="t", source_id="cornelius")
+    monkeypatch.setattr(gt, "_list_remote_files", lambda: ["anson.jsonl"])
+    monkeypatch.setattr(
+        gt,
+        "_read_remote_file",
+        lambda _path: ('{"event_id":"x1"}\n{"event_id":"x2"}\n{"event_id":"x3"}', "sha"),
+    )
+
+    payloads, cursors = gt.receive_incremental({"anson.jsonl": 2})
+    assert [p.get("event_id") for p in payloads] == ["x3"]
+    assert cursors["anson.jsonl"] == 3

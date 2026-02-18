@@ -235,3 +235,141 @@
   - If assets are missing/invalid, UI falls back to emoji (no crash).
 - Validation:
   - `python -m pytest` -> 14 passed
+
+## 2026-02-18 18:20:00
+- Scope: Backend reliability + smarter sync + safe journal compaction.
+- Files:
+  - `dugong/dugong_app/config.py`
+  - `dugong/dugong_app/controller.py`
+  - `dugong/dugong_app/interaction/protocol.py`
+  - `dugong/dugong_app/interaction/transport_base.py`
+  - `dugong/dugong_app/interaction/transport_file.py`
+  - `dugong/dugong_app/interaction/transport_github.py`
+  - `dugong/dugong_app/persistence/event_journal.py`
+  - `dugong/dugong_app/persistence/storage_json.py`
+  - `dugong/dugong_app/persistence/sync_cursor_json.py`
+  - `dugong/dugong_app/services/sync_engine.py`
+  - `dugong/dugong_app/services/daily_summary.py`
+  - `dugong/dugong_app/services/journal_compaction.py`
+  - `dugong/dugong_app/debug.py`
+  - `dugong/docs/schema_migrations.md`
+  - `dugong/README.md`
+  - `dugong/tests/test_event_journal_and_summary.py`
+  - `dugong/tests/test_sync_engine.py`
+  - `dugong/tests/test_transport_github.py`
+  - `dugong/tests/test_transport_file.py`
+  - `dugong/tests/test_storage_json_atomic.py`
+  - `dugong/tests/test_controller_policy.py`
+  - `dugong/tests/test_journal_compaction.py`
+- Changes:
+  - Centralized config via `DugongConfig`; unified data dir policy (`%APPDATA%/dugong` on Windows, `~/.dugong` on mac/linux, override by `DUGONG_DATA_DIR`).
+  - Journal now has single-source dedupe by `event_id`, bad-line tolerant reader, optional `fsync` append.
+  - State snapshot write upgraded to atomic `tmp + fsync + os.replace`.
+  - Protocol decode compatibility clarified (`v1/v1.1/v1.2`) with migration doc.
+  - Sync engine upgraded with status classification (`auth_fail/rate_limited/offline/retrying`), exponential backoff, and incremental cursor-based sync.
+  - Added persistent sync cursor file `sync_cursor.json`.
+  - Added adaptive auto-sync policy (idle backoff multiplier) and smarter remote signal prioritization in controller.
+  - Added debug CLI commands:
+    - `last-events`
+    - `summary`
+    - `compact-journal` (roll up old daily files into one `daily_rollup` event per day).
+  - Added safe journal compaction that preserves day-level summary while shrinking old data.
+- Validation:
+  - `python -m pytest -q` -> 25 passed
+  - `python -m dugong_app.debug compact-journal --keep-days 7 --dry-run` -> executable
+
+## 2026-02-18 18:48:00
+- Scope: P0/P1 hardening (compaction idempotence + paused auth state + observability).
+- Files:
+  - `dugong/dugong_app/services/journal_compaction.py`
+  - `dugong/dugong_app/services/sync_engine.py`
+  - `dugong/dugong_app/persistence/sync_cursor_json.py`
+  - `dugong/dugong_app/persistence/event_journal.py`
+  - `dugong/dugong_app/interaction/transport_github.py`
+  - `dugong/dugong_app/debug.py`
+  - `dugong/dugong_app/controller.py`
+  - `dugong/README.md`
+  - `dugong/tests/test_journal_compaction.py`
+  - `dugong/tests/test_sync_engine.py`
+  - `dugong/tests/test_sync_cursor_storage.py`
+- Changes:
+  - Compaction metadata hardened: `compaction_version`, `rolled_up_from_dates`, `rolled_up_source` and idempotent skip logic.
+  - Sync cursor upgraded to structured state:
+    - `file_cursors`
+    - `last_seen_event_id_by_source`
+    - backward-compatible load for old flat cursor format.
+  - Sync engine adds paused auth state:
+    - `auth_fail/auth_missing` => `paused` on auto sync until manual `force` sync.
+  - Added rollup-vs-raw protection in sync engine:
+    - skip remote `daily_rollup` if local already has raw events for same `(date, source)`.
+  - EventJournal now tracks `bad_lines_skipped` per read; CLI summary prints it.
+  - Debug CLI adds `config` command with masked token output.
+  - GitHub transport error formatting includes rate-limit reset hint when status=429.
+- Validation:
+  - `python -m pytest -q` -> 27 passed
+  - `python -m dugong_app.debug config` -> OK (token masked)
+  - `python -m dugong_app.debug summary --today` -> includes `bad_lines_skipped`
+
+## 2026-02-18 19:08:00
+- Scope: Backend v0.1 hardening follow-up (chain regression + health + migration guardrails).
+- Files:
+  - `dugong/dugong_app/services/sync_engine.py`
+  - `dugong/dugong_app/persistence/sync_cursor_json.py`
+  - `dugong/dugong_app/persistence/runtime_health_json.py`
+  - `dugong/dugong_app/persistence/event_journal.py`
+  - `dugong/dugong_app/controller.py`
+  - `dugong/dugong_app/services/journal_compaction.py`
+  - `dugong/dugong_app/services/data_migration.py`
+  - `dugong/dugong_app/debug.py`
+  - `dugong/README.md`
+  - `.gitignore`
+  - `dugong/tests/test_sync_compaction_chain.py`
+  - `dugong/tests/test_sync_cursor_storage.py`
+  - `dugong/tests/test_debug_cli.py`
+  - `dugong/tests/test_journal_compaction.py`
+  - `dugong/tests/test_sync_engine.py`
+- Changes:
+  - Added combo regression coverage for `cursor × compaction × sync`:
+    - compacted rollup sync import idempotence
+    - local raw + remote rollup skip correctness
+    - restart continues incremental from legacy cursor file.
+  - Sync cursor schema expanded with `last_seen_timestamp_by_source` (diagnostic watermark).
+  - Added persistent backend health snapshot `sync_health.json`.
+  - Added `debug health` command with:
+    - sync state / paused reason
+    - unread remote count
+    - bad lines skipped
+    - per-source latest event/timestamp
+    - last push/pull timestamp and counts.
+  - Auth failures now enter `paused` flow for auto sync (manual force sync still allowed).
+  - Startup adds non-destructive legacy repo-data migration into unified data dir.
+  - Strengthened `.gitignore` to avoid accidental runtime/token artifact commits.
+- Validation:
+  - `python -m pytest -q` -> 31 passed
+  - `python -m dugong_app.debug health` -> OK
+  - `python -m dugong_app.debug config` -> OK
+
+## 2026-02-18 19:26:00
+- Scope: Stability harness + UI background final rollback alignment.
+- Files:
+  - `dugong/scripts/stress_sync.py`
+  - `dugong/README.md`
+  - `dugong/dugong_app/ui/shell_qt.py`
+- Changes:
+  - Added stability harness script:
+    - periodic fake events (`manual_ping`/`mode_change`)
+    - forced sync interval
+    - random network errors
+    - simulated auth fail (401) / rate limit (429)
+    - schema mismatch injection
+    - compaction cycle + crash-skip simulation
+  - Added real-time terminal progress bar for long runs (percent/elapsed/sync_fail/paused/sent).
+  - Updated README with stress harness commands (`--hours 24/72` and smoke run).
+  - Restored UI to agreed visual baseline:
+    - full-width shell
+    - tiled scrolling background mode (accepted current behavior)
+    - `quit` button + `Esc` exit retained.
+- Validation:
+  - `python scripts/stress_sync.py --clean --hours 0.005` -> OK
+  - `python scripts/stress_sync.py --clean --hours 0.002` -> OK (progress bar shown)
+  - `python -m pytest -q tests\\test_entrypoint.py` -> 1 passed

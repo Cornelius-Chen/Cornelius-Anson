@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -25,5 +26,7 @@ class JsonStorage:
         payload = json.dumps(state.to_dict(), ensure_ascii=True, indent=2)
         with NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=str(self.path.parent)) as handle:
             handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
             tmp_path = Path(handle.name)
-        tmp_path.replace(self.path)
+        os.replace(tmp_path, self.path)

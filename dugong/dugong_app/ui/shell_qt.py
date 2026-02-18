@@ -59,7 +59,8 @@ class _DugongWindow(QtWidgets.QWidget):
         )
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
         self.setMouseTracking(True)
-        self.resize(900, 260)  # 你也可以用 380x260，看你想要多宽的海底
+        self._target_height = 260
+        self._apply_screen_width()
 
         # drag
         self._dragging = False
@@ -147,6 +148,7 @@ class _DugongWindow(QtWidgets.QWidget):
         lay.addWidget(mk_btn("rest",  "#1d3a57", lambda: self._emit_mode("rest")))
         lay.addWidget(mk_btn("ping",  "#275e44", self._emit_ping))
         lay.addWidget(mk_btn("sync",  "#6b4f1f", self._emit_sync))
+        lay.addWidget(mk_btn("quit",  "#6a2c2c", self._emit_quit))
         self._bar.hide()
 
         self._hide_bar_timer = QtCore.QTimer(self)
@@ -165,6 +167,14 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bg_timer.start()
 
         self._layout_overlay()
+
+    def _apply_screen_width(self) -> None:
+        screen = QtGui.QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(900, self._target_height)
+            return
+        geo = screen.availableGeometry()
+        self.resize(max(900, geo.width()), self._target_height)
 
     # -------- scaling / layout ----------
     def _rebuild_scaled_pixmaps(self) -> None:
@@ -194,6 +204,10 @@ class _DugongWindow(QtWidgets.QWidget):
             self._place_bar()
         self.update()
 
+    def showEvent(self, e: QtGui.QShowEvent) -> None:
+        self._apply_screen_width()
+        super().showEvent(e)
+
     # -------- animation ticks ----------
     def _tick_dugong(self) -> None:
         self._seq_i = (self._seq_i + 1) % len(self._seq)
@@ -220,9 +234,10 @@ class _DugongWindow(QtWidgets.QWidget):
             bg = self._bg_scaled
             bg_w = bg.width()
             off = int(self._bg_offset)
-            # tile two copies for seamless loop
-            p.drawPixmap(-off, 0, bg)
-            p.drawPixmap(bg_w - off, 0, bg)
+            x = -off
+            while x < self.width():
+                p.drawPixmap(x, 0, bg)
+                x += bg_w
 
         # draw dugong centered
         if self._dugong_frame:
@@ -294,3 +309,16 @@ class _DugongWindow(QtWidgets.QWidget):
     def _emit_sync(self) -> None:
         if self._on_sync_now is not None:
             self._on_sync_now()
+
+    def _emit_quit(self) -> None:
+        self.close()
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.quit()
+
+    def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
+        if e.key() == QtCore.Qt.Key_Escape:
+            self._emit_quit()
+            e.accept()
+            return
+        super().keyPressEvent(e)

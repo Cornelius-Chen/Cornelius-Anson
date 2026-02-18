@@ -34,6 +34,12 @@ class GithubTransport(TransportBase):
         self._write_remote_file(path=path, text=next_text, sha=sha, message=f"sync({self.source_id}): append event")
 
     def receive(self) -> list[dict]:
+        payloads, _next = self.receive_incremental({})
+        return payloads
+
+    def receive_incremental(self, cursors: dict[str, int] | None = None) -> tuple[list[dict], dict[str, int]]:
+        current_cursors = dict(cursors or {})
+        next_cursors: dict[str, int] = dict(current_cursors)
         payloads: list[dict] = []
         for name in self._list_remote_files():
             if not name.endswith(".jsonl"):
@@ -42,14 +48,19 @@ class GithubTransport(TransportBase):
                 continue
             path = self._path(name)
             text, _sha = self._read_remote_file(path)
-            for line in text.splitlines():
+            lines = text.splitlines()
+            offset = int(current_cursors.get(name, 0))
+            if offset < 0 or offset > len(lines):
+                offset = 0
+            for line in lines[offset:]:
                 if not line.strip():
                     continue
                 try:
                     payloads.append(json.loads(line))
                 except json.JSONDecodeError:
                     continue
-        return payloads
+            next_cursors[name] = len(lines)
+        return payloads, next_cursors
 
     def _path(self, filename: str) -> str:
         return str(PurePosixPath(self.folder) / filename)
@@ -66,7 +77,7 @@ class GithubTransport(TransportBase):
             "User-Agent": "dugong-sync/0.1",
         }
 
-    def _api_request(self, method: str, url: str, body: dict | None = None) -> tuple[int, dict | list]:
+    def _api_request(self, method: str, url: str, body: dict | None = None) -> tuple[int, dict | list, dict[str, str]]:
         data = None
         headers = self._headers()
         if body is not None:
@@ -78,19 +89,19 @@ class GithubTransport(TransportBase):
             with urlopen(req, timeout=15) as resp:
                 raw = resp.read().decode("utf-8")
                 payload = json.loads(raw) if raw else {}
-                return resp.status, payload
+                return resp.status, payload, dict(resp.headers.items())
         except HTTPError as exc:
             raw = exc.read().decode("utf-8") if exc.fp else ""
             payload = json.loads(raw) if raw else {}
-            return exc.code, payload
+            return exc.code, payload, dict(exc.headers.items()) if exc.headers else {}
 
     def _list_remote_files(self) -> list[str]:
         url = f"{self._base_url(self.folder)}?ref={quote(self.branch)}"
-        status, payload = self._api_request("GET", url)
+        status, payload, resp_headers = self._api_request("GET", url)
         if status == 404:
             return []
         if status >= 400:
-            raise RuntimeError(f"github list failed: status={status}")
+            raise RuntimeError(self._format_http_error("github list failed", status, resp_headers))
         if not isinstance(payload, list):
             return []
 
@@ -102,11 +113,11 @@ class GithubTransport(TransportBase):
 
     def _read_remote_file(self, path: str) -> tuple[str, str | None]:
         url = f"{self._base_url(path)}?ref={quote(self.branch)}"
-        status, payload = self._api_request("GET", url)
+        status, payload, resp_headers = self._api_request("GET", url)
         if status == 404:
             return "", None
         if status >= 400 or not isinstance(payload, dict):
-            raise RuntimeError(f"github read failed: status={status}")
+            raise RuntimeError(self._format_http_error("github read failed", status, resp_headers))
 
         b64 = payload.get("content", "")
         if not isinstance(b64, str):
@@ -123,6 +134,14 @@ class GithubTransport(TransportBase):
         }
         if sha:
             body["sha"] = sha
-        status, _payload = self._api_request("PUT", self._base_url(path), body=body)
+        status, _payload, resp_headers = self._api_request("PUT", self._base_url(path), body=body)
         if status >= 400:
-            raise RuntimeError(f"github write failed: status={status}")
+            raise RuntimeError(self._format_http_error("github write failed", status, resp_headers))
+
+    def _format_http_error(self, prefix: str, status: int, headers: dict[str, str]) -> str:
+        if status != 429:
+            return f"{prefix}: status={status}"
+        reset = headers.get("X-RateLimit-Reset") or headers.get("x-ratelimit-reset")
+        if reset:
+            return f"{prefix}: status=429 rate_limit_reset={reset}"
+        return f"{prefix}: status=429"

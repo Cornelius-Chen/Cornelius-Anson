@@ -39,7 +39,13 @@ def summarize_events(events: list[DugongEvent]) -> dict:
         day = _safe_date(event.timestamp)
         bucket = by_day[day]
 
-        if event.event_type == "state_tick":
+        if event.event_type == "daily_rollup":
+            bucket["focus_seconds"] += int(event.payload.get("focus_seconds", 0))
+            bucket["ticks"] += int(event.payload.get("ticks", 0))
+            bucket["mode_changes"] += int(event.payload.get("mode_changes", 0))
+            bucket["clicks"] += int(event.payload.get("clicks", 0))
+            bucket["manual_pings"] += int(event.payload.get("manual_pings", 0))
+        elif event.event_type == "state_tick":
             bucket["ticks"] += 1
             mode = event.payload.get("mode")
             tick_seconds = int(event.payload.get("tick_seconds", 60))

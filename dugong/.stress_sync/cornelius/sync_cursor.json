@@ -1,0 +1,12 @@
+{
+  "version": "v2",
+  "file_cursors": {
+    "anson.jsonl": 1
+  },
+  "last_seen_event_id_by_source": {
+    "anson": "fcc66fbf471b481cab03af1c0523e4dd"
+  },
+  "last_seen_timestamp_by_source": {
+    "anson": "2026-02-18T12:49:35.940467+00:00"
+  }
+}

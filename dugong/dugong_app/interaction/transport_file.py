@@ -19,18 +19,30 @@ class FileTransport(TransportBase):
             handle.write(line + "\n")
 
     def receive(self) -> list[dict]:
-        if not self.shared_dir.exists():
-            return []
+        payloads, _next = self.receive_incremental({})
+        return payloads
 
+    def receive_incremental(self, cursors: dict[str, int] | None = None) -> tuple[list[dict], dict[str, int]]:
+        if not self.shared_dir.exists():
+            return [], {}
+
+        current_cursors = dict(cursors or {})
+        next_cursors: dict[str, int] = dict(current_cursors)
         payloads: list[dict] = []
         for file_path in sorted(self.shared_dir.glob("*.jsonl")):
             if file_path == self.source_file:
                 continue
-            for line in file_path.read_text(encoding="utf-8").splitlines():
+            file_key = file_path.name
+            lines = file_path.read_text(encoding="utf-8").splitlines()
+            offset = int(current_cursors.get(file_key, 0))
+            if offset < 0 or offset > len(lines):
+                offset = 0
+            for line in lines[offset:]:
                 if not line.strip():
                     continue
                 try:
                     payloads.append(json.loads(line))
                 except json.JSONDecodeError:
                     continue
-        return payloads
+            next_cursors[file_key] = len(lines)
+        return payloads, next_cursors

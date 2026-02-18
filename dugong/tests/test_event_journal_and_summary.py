@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from dugong_app.core.events import DugongEvent
 from dugong_app.persistence.event_journal import EventJournal
@@ -21,6 +21,41 @@ def test_event_journal_append_and_load(tmp_path) -> None:
     assert len(loaded) == 1
     assert loaded[0].event_type == "mode_change"
     assert loaded[0].payload["mode"] == "study"
+
+
+def test_event_journal_append_dedupes_by_event_id(tmp_path) -> None:
+    path = tmp_path / "event_journal.jsonl"
+    journal = EventJournal(path)
+    event = DugongEvent(
+        event_type="manual_ping",
+        timestamp="2026-02-17T10:00:00+00:00",
+        event_id="evt_dup_1",
+        payload={"message": "x"},
+    )
+
+    assert journal.append(event) is True
+    assert journal.append(event) is False
+
+    loaded = journal.load_all()
+    assert len([e for e in loaded if e.event_id == "evt_dup_1"]) == 1
+
+
+def test_event_journal_bad_line_tolerant_reader(tmp_path, caplog) -> None:
+    day_dir = tmp_path / "event_journal"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    file_path = day_dir / "2026-02-17.jsonl"
+    file_path.write_text(
+        '{"event_type":"manual_ping","timestamp":"2026-02-17T10:00:00+00:00","event_id":"ok1","source":"a","schema_version":"v1.1","payload":{}}\n'
+        '{"event_type":"manual_ping","timestamp":"BROKEN"\n',
+        encoding="utf-8",
+    )
+
+    journal = EventJournal(tmp_path / "event_journal.jsonl")
+    loaded = journal.load_all()
+
+    assert len(loaded) == 1
+    assert loaded[0].event_id == "ok1"
+    assert any("journal bad line" in rec.message for rec in caplog.records)
 
 
 def test_event_journal_retention_prunes_old_days(tmp_path) -> None:
