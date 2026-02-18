@@ -91,7 +91,7 @@
     {
       "start_at": "2026-02-17T12:09:46.579476+00:00",
       "end_at": null,
-      "duration_seconds": 690,
+      "duration_seconds": 1592,
       "start_event_id": "d0aedd3fcf4643dfa03eebee0ec67e4b",
       "end_event_id": null,
       "ended_by": "open"
