@@ -1,42 +1,30 @@
 ﻿from __future__ import annotations
 
+import math
 import sys
 import tkinter as tk
 from collections.abc import Callable
-import math
 from pathlib import Path
 
 
 def apply_transparency(root: tk.Tk, transparent_key_color: str) -> dict:
-    """
-    Cross-platform transparency for Tkinter.
-
-    - macOS: try true transparency via '-transparent' + systemTransparent
-    - Windows: color-key transparency via '-transparentcolor'
-    - Others: fallback (no cutout transparency)
-
-    Returns:
-      {"mode": "mac" | "win" | "fallback", "bg": bg_color_for_widgets}
-    """
+    """Cross-platform transparency setup with mac-safe fallback."""
     info = {"mode": "fallback", "bg": transparent_key_color}
 
     try:
         if sys.platform == "darwin":
-            # macOS: disable transparent mode to avoid PNG alpha rendering glitches.
+            # macOS fallback: keep opaque background for stable PNG rendering.
             root.wm_attributes("-alpha", 1.0)
             root.configure(bg=transparent_key_color)
             return {"mode": "mac_fallback_opaque", "bg": transparent_key_color}
 
         if sys.platform.startswith("win"):
-            # Windows color-key transparency (EXACT color match required)
             root.attributes("-transparentcolor", transparent_key_color)
             root.configure(bg=transparent_key_color)
             return {"mode": "win", "bg": transparent_key_color}
-
     except Exception:
         pass
 
-    # Optional mild alpha fallback (NOT cutout transparency)
     try:
         root.attributes("-alpha", 0.98)
     except Exception:
@@ -47,7 +35,7 @@ def apply_transparency(root: tk.Tk, transparent_key_color: str) -> dict:
 
 class DugongShell:
     """
-    UI contract (V1 frozen):
+    UI contract (kept stable):
       - update_view(sprite, state_text, bubble)
       - schedule_every(seconds, callback)
       - run()
@@ -64,73 +52,69 @@ class DugongShell:
         self._on_click = on_click
         self._on_manual_ping = on_manual_ping
         self._on_sync_now = on_sync_now
+
         self._pet_frames: list[tk.PhotoImage] = []
         self._pet_frame_idx = 0
         self._pet_anim_job: str | None = None
         self._pet_anim_ms = 140
-        self._pet_max_width = 140
-        self._pet_max_height = 90
+        self._pet_max_width = 150
+        self._pet_max_height = 105
 
         self.root = tk.Tk()
         self.root.title("Dugong V1")
-        self.root.geometry("380x220+120+120")
+        self.root.geometry("400x250+120+120")
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
 
-        # --- Transparency (cross-platform) ---
-        TRANSPARENT_KEY = "#eaf4ff"  # Windows uses this as the "cutout" color
-        t = apply_transparency(self.root, TRANSPARENT_KEY)
+        transparent_key = "#eaf4ff"
+        t = apply_transparency(self.root, transparent_key)
         self.BG = t["bg"]
         print("[UI] platform:", sys.platform, "transparency:", t)
 
-        # drag state
         self._drag_origin_x = 0
         self._drag_origin_y = 0
-        self._dragging = False
 
-        # hover hide debounce
-        self._hide_job: str | None = None
+        # Root stage
+        self.stage = tk.Frame(self.root, bd=0, relief=tk.FLAT, bg=self.BG)
+        self.stage.pack(fill=tk.BOTH, expand=True)
 
-        # main frame (IMPORTANT: bg must be BG for transparency to work)
-        self.frame = tk.Frame(self.root, bd=0, relief=tk.FLAT, bg=self.BG)
-        self.frame.pack(fill=tk.BOTH, expand=True)
+        # Layer 1: pet layer
+        self.pet_layer = tk.Frame(self.stage, bg=self.BG, width=220, height=120)
+        self.pet_layer.pack(pady=(8, 0))
+        self.pet_layer.pack_propagate(False)
 
-        # Title
-        self.title_label = tk.Label(
-            self.frame, text="Dugong", bg=self.BG, font=("TkDefaultFont", 12, "bold")
-        )
-        self.title_label.pack(pady=(10, 2))
+        self.pet_label = tk.Label(self.pet_layer, text="", bg=self.BG, font=("TkDefaultFont", 48))
+        self.pet_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
-        # Big pet emoji
-        self.pet_label = tk.Label(
-            self.frame, text="", bg=self.BG, font=("TkDefaultFont", 48)
-        )
-        self.pet_label.pack(pady=(2, 2))
         self._load_pet_frames()
         if not self._pet_frames:
             self.pet_label.configure(text="🦭")
         self._start_pet_animation()
 
-        # State line
-        self.state_label = tk.Label(
-            self.frame, text="state", bg=self.BG, font=("TkFixedFont", 10)
-        )
-        self.state_label.pack(pady=2)
+        # Layer 2: text/info layer
+        self.text_layer = tk.Frame(self.stage, bg=self.BG)
+        self.text_layer.pack(fill=tk.X)
 
-        # Bubble
+        self.title_label = tk.Label(self.text_layer, text="Dugong", bg=self.BG, font=("TkDefaultFont", 12, "bold"))
+        self.title_label.pack(pady=(0, 2))
+
+        self.state_label = tk.Label(self.text_layer, text="state", bg=self.BG, font=("TkFixedFont", 10))
+        self.state_label.pack(pady=1)
+
         self.bubble_label = tk.Label(
-            self.frame,
+            self.text_layer,
             text="",
             bg=self.BG,
             fg="#174a7a",
-            wraplength=240,
+            wraplength=320,
             justify="center",
         )
-        self.bubble_label.pack(pady=(6, 8))
+        self.bubble_label.pack(pady=(3, 6))
 
-        # ---- Hover Action Bar (study/chill/rest/ping/sync) ----
-        self.option_bar = tk.Frame(self.frame, bg="#0f2033")
-        self.option_bar.place_forget()
+        # Layer 3: controls layer
+        control_bg = self.BG if sys.platform == "darwin" else "#0f2033"
+        self.control_layer = tk.Frame(self.stage, bg=control_bg)
+        self.control_layer.pack(side=tk.BOTTOM, pady=8)
 
         self._mk_option_btn("study").pack(side=tk.LEFT, padx=6, pady=6)
         self._mk_option_btn("chill").pack(side=tk.LEFT, padx=6, pady=6)
@@ -138,17 +122,7 @@ class DugongShell:
         self._mk_ping_btn().pack(side=tk.LEFT, padx=6, pady=6)
         self._mk_sync_btn().pack(side=tk.LEFT, padx=6, pady=6)
 
-        # Bind drag + click on all main widgets
-        for w in (self.frame, self.title_label, self.pet_label, self.state_label, self.bubble_label):
-            self._bind_drag(w)
-            w.bind("<Button-1>", self._handle_click)
-
-        # Hover show/hide (debounced)
-        for w in (self.root, self.frame, self.title_label, self.pet_label, self.state_label, self.bubble_label, self.option_bar):
-            w.bind("<Enter>", lambda _e: self._show_option_bar())
-            w.bind("<Leave>", lambda _e: self._schedule_hide())
-
-        # Backup context menu (optional)
+        # Context menu
         self._menu = tk.Menu(self.root, tearoff=0)
         self._menu.add_command(label="study", command=lambda: self._emit_mode("study"))
         self._menu.add_command(label="chill", command=lambda: self._emit_mode("chill"))
@@ -157,14 +131,17 @@ class DugongShell:
         self._menu.add_command(label="sync now", command=self._emit_sync_now)
         self._menu.add_separator()
         self._menu.add_command(label="quit", command=self.root.destroy)
-        self._bind_context_menu(self.frame)
 
-        self.root.bind("<Configure>", lambda _e: self._reposition_option_bar())
+        # Bind drag + click
+        widgets = [self.stage, self.pet_layer, self.pet_label, self.text_layer, self.title_label, self.state_label, self.bubble_label, self.control_layer]
+        for w in widgets:
+            self._bind_drag(w)
+            w.bind("<Button-1>", self._handle_click)
+            self._bind_context_menu(w)
 
-    # ---------- Action Bar ----------
     def _mk_option_btn(self, mode: str) -> tk.Button:
         return tk.Button(
-            self.option_bar,
+            self.control_layer,
             text=mode,
             command=lambda m=mode: self._emit_mode(m),
             bd=0,
@@ -179,7 +156,7 @@ class DugongShell:
 
     def _mk_ping_btn(self) -> tk.Button:
         return tk.Button(
-            self.option_bar,
+            self.control_layer,
             text="ping",
             command=self._emit_ping,
             bd=0,
@@ -194,7 +171,7 @@ class DugongShell:
 
     def _mk_sync_btn(self) -> tk.Button:
         return tk.Button(
-            self.option_bar,
+            self.control_layer,
             text="sync",
             command=self._emit_sync_now,
             bd=0,
@@ -222,7 +199,7 @@ class DugongShell:
             except tk.TclError:
                 continue
 
-        self._pet_frames = self._normalize_frames(frames)
+        self._pet_frames = frames
         if self._pet_frames:
             self.pet_label.configure(image=self._pet_frames[0], text="")
             self.pet_label.image = self._pet_frames[0]
@@ -235,24 +212,6 @@ class DugongShell:
             return frame
         factor = int(math.ceil(scale))
         return frame.subsample(factor, factor)
-
-    def _normalize_frames(self, frames: list[tk.PhotoImage]) -> list[tk.PhotoImage]:
-        if not frames:
-            return []
-
-        target_w = max(frame.width() for frame in frames)
-        target_h = max(frame.height() for frame in frames)
-        normalized: list[tk.PhotoImage] = []
-
-        for frame in frames:
-            canvas = tk.PhotoImage(width=target_w, height=target_h)
-            x = (target_w - frame.width()) // 2
-            y = target_h - frame.height()
-            canvas.tk.call(str(canvas), "copy", str(frame), "-to", x, y)
-            normalized.append(canvas)
-
-        return normalized
-
 
     def _start_pet_animation(self) -> None:
         if len(self._pet_frames) < 2:
@@ -267,65 +226,11 @@ class DugongShell:
 
         self._pet_anim_job = self.root.after(self._pet_anim_ms, loop)
 
-    def _place_option_bar(self) -> None:
-        self.option_bar.update_idletasks()
-        w = self.option_bar.winfo_reqwidth()
-        h = self.option_bar.winfo_reqheight()
-        fw = self.frame.winfo_width()
-        fh = self.frame.winfo_height()
-        x = max(0, (fw - w) // 2)
-        y = max(0, fh - h - 8)
-        self.option_bar.place(x=x, y=y)
-
-    def _show_option_bar(self) -> None:
-        if self._dragging:
-            return
-        self._cancel_hide_job()
-        self._place_option_bar()
-        self.option_bar.lift()
-
-    def _schedule_hide(self, delay_ms: int = 180) -> None:
-        self._cancel_hide_job()
-        self._hide_job = self.root.after(delay_ms, self._hide_if_pointer_outside)
-
-    def _cancel_hide_job(self) -> None:
-        if self._hide_job is not None:
-            try:
-                self.root.after_cancel(self._hide_job)
-            except Exception:
-                pass
-            self._hide_job = None
-
-    def _hide_if_pointer_outside(self) -> None:
-        try:
-            px = self.root.winfo_pointerx()
-            py = self.root.winfo_pointery()
-            rx = self.root.winfo_rootx()
-            ry = self.root.winfo_rooty()
-            rw = self.root.winfo_width()
-            rh = self.root.winfo_height()
-            inside = (rx <= px <= rx + rw) and (ry <= py <= ry + rh)
-        except Exception:
-            inside = False
-        if not inside:
-            self.option_bar.place_forget()
-
-    def _reposition_option_bar(self) -> None:
-        try:
-            if self.option_bar.winfo_ismapped():
-                self._place_option_bar()
-        except Exception:
-            pass
-
-    # ---------- Drag / Menu / Click ----------
     def _bind_drag(self, widget: tk.Widget) -> None:
         widget.bind("<ButtonPress-1>", self._drag_start)
         widget.bind("<B1-Motion>", self._drag_move)
-        widget.bind("<ButtonRelease-1>", self._drag_end)
 
     def _drag_start(self, event: tk.Event) -> None:
-        self._dragging = True
-        self.option_bar.place_forget()
         self._drag_origin_x = event.x
         self._drag_origin_y = event.y
 
@@ -333,10 +238,6 @@ class DugongShell:
         x = self.root.winfo_x() + event.x - self._drag_origin_x
         y = self.root.winfo_y() + event.y - self._drag_origin_y
         self.root.geometry(f"+{x}+{y}")
-
-    def _drag_end(self, _event: tk.Event) -> None:
-        self._dragging = False
-        self._show_option_bar()
 
     def _bind_context_menu(self, widget: tk.Widget) -> None:
         widget.bind("<Button-2>", self._open_menu)
@@ -363,11 +264,11 @@ class DugongShell:
         if self._on_sync_now is not None:
             self._on_sync_now()
 
-    # ---------- Controller contract ----------
     def schedule_every(self, seconds: int, callback: Callable[[], None]) -> None:
         def loop() -> None:
             callback()
             self.root.after(seconds * 1000, loop)
+
         self.root.after(seconds * 1000, loop)
 
     def update_view(self, sprite: str, state_text: str, bubble: str | None = None) -> None:

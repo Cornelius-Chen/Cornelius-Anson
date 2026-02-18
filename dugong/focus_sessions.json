@@ -119,6 +119,14 @@
       "start_event_id": "9a51c20ef27242a09608df8137a349c1",
       "end_event_id": "5034f89b30f341a881bb217f7a5d27cb",
       "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-18T05:49:05.251419+00:00",
+      "end_at": null,
+      "duration_seconds": 7,
+      "start_event_id": "a4719726928448f5b8cd92e9e828357f",
+      "end_event_id": null,
+      "ended_by": "open"
     }
   ]
 }
