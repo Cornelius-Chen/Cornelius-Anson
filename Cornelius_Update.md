@@ -223,3 +223,15 @@
   - Controller added `on_sync_now()` with instant feedback bubble (`Sync now: +N` / `Sync failed`).
 - Validation:
   - `python -m pytest` -> 14 passed
+
+## 2026-02-17 08:10:00
+- Scope: UI pet animation support (3-frame PNG loop, fallback-safe).
+- Files:
+  - `dugong/dugong_app/ui/shell_qt.py`
+  - `dugong/dugong_app/ui/assets/README.md`
+- Changes:
+  - Added auto-loading of `seal_1.png`/`seal_2.png`/`seal_3.png` from `ui/assets/`.
+  - Added frame loop animation (~140ms per frame).
+  - If assets are missing/invalid, UI falls back to emoji (no crash).
+- Validation:
+  - `python -m pytest` -> 14 passed

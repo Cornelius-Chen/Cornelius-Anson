@@ -97,3 +97,13 @@
   - new `sync` button in action bar
   - new `sync now` in context menu
 - No further UI change required for this step.
+
+## 2026-02-17 08:10:00
+- Scope: 3-frame seal animation hook added.
+- Required assets:
+  - `dugong/dugong_app/ui/assets/seal_1.png`
+  - `dugong/dugong_app/ui/assets/seal_2.png`
+  - `dugong/dugong_app/ui/assets/seal_3.png`
+- Behavior:
+  - Auto-loop if files exist.
+  - Fallback to emoji if files are missing.

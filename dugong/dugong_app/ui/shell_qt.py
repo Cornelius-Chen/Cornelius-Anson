@@ -3,6 +3,8 @@
 import sys
 import tkinter as tk
 from collections.abc import Callable
+import math
+from pathlib import Path
 
 
 def apply_transparency(root: tk.Tk, transparent_key_color: str) -> dict:
@@ -63,6 +65,12 @@ class DugongShell:
         self._on_click = on_click
         self._on_manual_ping = on_manual_ping
         self._on_sync_now = on_sync_now
+        self._pet_frames: list[tk.PhotoImage] = []
+        self._pet_frame_idx = 0
+        self._pet_anim_job: str | None = None
+        self._pet_anim_ms = 140
+        self._pet_max_width = 140
+        self._pet_max_height = 90
 
         self.root = tk.Tk()
         self.root.title("Dugong V1")
@@ -99,6 +107,8 @@ class DugongShell:
             self.frame, text="🦭", bg=self.BG, font=("TkDefaultFont", 48)
         )
         self.pet_label.pack(pady=(2, 2))
+        self._load_pet_frames()
+        self._start_pet_animation()
 
         # State line
         self.state_label = tk.Label(
@@ -195,6 +205,65 @@ class DugongShell:
             pady=4,
             cursor="hand2",
         )
+
+    def _load_pet_frames(self) -> None:
+        assets_dir = Path(__file__).resolve().parent / "assets"
+        frame_names = ["seal_1.png", "seal_2.png", "seal_3.png"]
+
+        frames: list[tk.PhotoImage] = []
+        for name in frame_names:
+            frame_path = assets_dir / name
+            if not frame_path.exists():
+                continue
+            try:
+                raw = tk.PhotoImage(file=str(frame_path))
+                frames.append(self._fit_frame(raw, self._pet_max_width, self._pet_max_height))
+            except tk.TclError:
+                continue
+
+        self._pet_frames = self._normalize_frames(frames)
+        if self._pet_frames:
+            self.pet_label.configure(image=self._pet_frames[0], text="")
+            self.pet_label.image = self._pet_frames[0]
+
+    def _fit_frame(self, frame: tk.PhotoImage, max_w: int, max_h: int) -> tk.PhotoImage:
+        w = max(1, frame.width())
+        h = max(1, frame.height())
+        scale = max(w / max_w, h / max_h, 1.0)
+        if scale <= 1.0:
+            return frame
+        factor = int(math.ceil(scale))
+        return frame.subsample(factor, factor)
+
+    def _normalize_frames(self, frames: list[tk.PhotoImage]) -> list[tk.PhotoImage]:
+        if not frames:
+            return []
+
+        target_w = max(frame.width() for frame in frames)
+        target_h = max(frame.height() for frame in frames)
+        normalized: list[tk.PhotoImage] = []
+
+        for frame in frames:
+            canvas = tk.PhotoImage(width=target_w, height=target_h)
+            x = (target_w - frame.width()) // 2
+            y = target_h - frame.height()  # bottom-align to reduce vertical jitter
+            canvas.tk.call(str(canvas), "copy", str(frame), "-to", x, y)
+            normalized.append(canvas)
+
+        return normalized
+
+    def _start_pet_animation(self) -> None:
+        if len(self._pet_frames) < 2:
+            return
+
+        def loop() -> None:
+            self._pet_frame_idx = (self._pet_frame_idx + 1) % len(self._pet_frames)
+            frame = self._pet_frames[self._pet_frame_idx]
+            self.pet_label.configure(image=frame, text="")
+            self.pet_label.image = frame
+            self._pet_anim_job = self.root.after(self._pet_anim_ms, loop)
+
+        self._pet_anim_job = self.root.after(self._pet_anim_ms, loop)
 
     def _place_option_bar(self) -> None:
         self.option_bar.update_idletasks()

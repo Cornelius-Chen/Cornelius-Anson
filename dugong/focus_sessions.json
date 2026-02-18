@@ -95,6 +95,22 @@
       "start_event_id": "d0aedd3fcf4643dfa03eebee0ec67e4b",
       "end_event_id": "9786c1e9ef45458f97f2af92218355c2",
       "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-18T01:23:22.996058+00:00",
+      "end_at": "2026-02-18T01:23:29.168926+00:00",
+      "duration_seconds": 6,
+      "start_event_id": "3248fd7d77234fee8ce284f32676b760",
+      "end_event_id": "74eedf9be1754866a00a7b4047405b59",
+      "ended_by": "mode_change"
+    },
+    {
+      "start_at": "2026-02-18T02:17:55.583897+00:00",
+      "end_at": null,
+      "duration_seconds": 11242,
+      "start_event_id": "6b441597d5fe4235a4e94a68db42b582",
+      "end_event_id": null,
+      "ended_by": "open"
     }
   ]
 }
