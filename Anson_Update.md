@@ -107,3 +107,39 @@
 - Behavior:
   - Auto-loop if files exist.
   - Fallback to emoji if files are missing.
+
+## 2026-02-18 17:15:11
+- Scope: Anson UI 总更新汇总（基于当前 PySide6 版本 `shell_qt.py`）。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/ui/assets/bg_ocean.png
+  - dugong/dugong_app/ui/assets/seal_1.png
+  - dugong/dugong_app/ui/assets/seal_2.png
+  - dugong/dugong_app/ui/assets/seal_3.png
+- Total Updates:
+  - UI 框架从 Tk 方案切换为 PySide6 `QWidget` 壳层，保留 `DugongShell` 既有接口签名不变。
+  - 窗口行为升级为无边框、置顶、工具窗，并开启 `WA_TranslucentBackground` 透明背景。
+  - 主视觉改为 `paintEvent` 自绘：
+    - 海底背景 `bg_ocean.png` 横向循环滚动。
+    - Dugong 三帧 `seal_1/2/3` 按 `1-2-3-2` 序列循环动画。
+  - 新增缩放缓存逻辑：窗口尺寸变化时重建背景与角色缩放图，保证跨分辨率显示稳定。
+  - 新增双计时器机制：
+    - 角色动画帧计时器（默认 320ms）
+    - 背景滚动计时器（默认 16ms）
+  - 覆盖层 UI 完整化：
+    - 标题与状态文案
+    - 气泡组件（自动隐藏）
+    - Hover Action Bar（`study/chill/rest/ping/sync`）
+  - 交互增强：
+    - 鼠标拖拽移动窗口
+    - 左键释放触发 `on_click`
+    - 按钮分别回调 `on_mode_change` / `on_manual_ping("checkin")` / `on_sync_now`
+  - 资源加载改为严格校验：背景图或任一 Dugong 帧缺失会直接抛错，避免静默降级。
+  - `schedule_every` 使用 Qt `QTimer` 托管，并将 timer 引用保存在窗口实例中，防止被回收。
+- Contract Kept:
+  - `DugongShell(on_mode_change, on_click, on_manual_ping=None, on_sync_now=None)`
+  - `DugongShell.update_view(sprite, state_text, bubble)`
+  - `DugongShell.schedule_every(seconds, callback)`
+  - `DugongShell.run()`
+- Notes:
+  - 当前 `update_view(sprite, ...)` 已不再使用 `sprite` 参数驱动渲染，角色显示由本地帧动画主导。
