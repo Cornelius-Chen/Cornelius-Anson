@@ -22,11 +22,10 @@ def apply_transparency(root: tk.Tk, transparent_key_color: str) -> dict:
 
     try:
         if sys.platform == "darwin":
-            # macOS true transparency (if supported by your Tk build)
-            root.wm_attributes("-transparent", True)
+            # macOS: disable transparent mode to avoid PNG alpha rendering glitches.
             root.wm_attributes("-alpha", 1.0)
-            root.configure(bg="systemTransparent")
-            return {"mode": "mac", "bg": "systemTransparent"}
+            root.configure(bg=transparent_key_color)
+            return {"mode": "mac_fallback_opaque", "bg": transparent_key_color}
 
         if sys.platform.startswith("win"):
             # Windows color-key transparency (EXACT color match required)
