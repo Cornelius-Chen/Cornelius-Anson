@@ -104,10 +104,12 @@ class DugongShell:
 
         # Big pet emoji
         self.pet_label = tk.Label(
-            self.frame, text="🦭", bg=self.BG, font=("TkDefaultFont", 48)
+            self.frame, text="", bg=self.BG, font=("TkDefaultFont", 48)
         )
         self.pet_label.pack(pady=(2, 2))
         self._load_pet_frames()
+        if not self._pet_frames:
+            self.pet_label.configure(text="🦭")
         self._start_pet_animation()
 
         # State line
@@ -369,7 +371,8 @@ class DugongShell:
         self.root.after(seconds * 1000, loop)
 
     def update_view(self, sprite: str, state_text: str, bubble: str | None = None) -> None:
-        self.pet_label.configure(text=sprite)
+        if not self._pet_frames:
+            self.pet_label.configure(text=sprite)
         self.state_label.configure(text=state_text)
 
         if bubble is not None:
