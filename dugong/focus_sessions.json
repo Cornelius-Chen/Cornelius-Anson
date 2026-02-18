@@ -90,11 +90,11 @@
     },
     {
       "start_at": "2026-02-17T12:09:46.579476+00:00",
-      "end_at": null,
-      "duration_seconds": 1592,
+      "end_at": "2026-02-17T13:41:06.790333+00:00",
+      "duration_seconds": 5480,
       "start_event_id": "d0aedd3fcf4643dfa03eebee0ec67e4b",
-      "end_event_id": null,
-      "ended_by": "open"
+      "end_event_id": "9786c1e9ef45458f97f2af92218355c2",
+      "ended_by": "mode_change"
     }
   ]
 }
