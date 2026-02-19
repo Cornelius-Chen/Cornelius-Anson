@@ -41,6 +41,7 @@ class DugongController:
         self.unread_remote_count = 0
         self.sync_status = "idle"
         self._state_dirty = False
+        self._remote_presence: dict[str, dict[str, str | float]] = {}
 
         self.journal = EventJournal(
             config.data_dir / "event_journal.jsonl",
@@ -71,6 +72,8 @@ class DugongController:
         self._sync_idle_multiplier = 1
         self._sync_idle_max_multiplier = max(1, config.sync_idle_max_multiplier)
         self._next_auto_sync_monotonic = 0.0
+        self._last_fast_sync_monotonic = 0.0
+        self._fast_sync_cooldown_seconds = 1.2
         self._derived_dirty = False
         self._derived_rebuild_interval_seconds = config.derived_rebuild_seconds
         self._derived_last_rebuild_monotonic = 0.0
@@ -120,6 +123,7 @@ class DugongController:
                 on_click=self.on_click,
                 on_manual_ping=self.on_manual_ping,
                 on_sync_now=self.on_sync_now,
+                source_id=self.source_id,
             )
         except TypeError:
             return DugongShell(
@@ -247,6 +251,47 @@ class DugongController:
         # No strong signal: keep at least one notification so user knows remote had activity.
         return max(1 if events else 0, count)
 
+    def _update_remote_presence(self, events) -> None:
+        now = time.time()
+        for ev in events:
+            source = (getattr(ev, "source", "") or "").strip()
+            if not source or source == self.source_id:
+                continue
+
+            entry = self._remote_presence.setdefault(
+                source,
+                {"source": source, "mode": "unknown", "last_seen": 0.0, "event_type": ""},
+            )
+            entry["last_seen"] = now
+            entry["event_type"] = ev.event_type
+
+            if ev.event_type == "mode_change":
+                entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
+            elif ev.event_type == "state_tick":
+                entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
+
+    def _shared_entities(self) -> list[dict[str, str | float]]:
+        now = time.time()
+        ttl_seconds = 20 * 60
+        remote = [
+            {
+                "source": src,
+                "mode": str(info.get("mode", "unknown")),
+                "last_seen": float(info.get("last_seen", 0.0)),
+                "is_local": 0.0,
+            }
+            for src, info in self._remote_presence.items()
+            if (now - float(info.get("last_seen", 0.0))) <= ttl_seconds
+        ]
+        remote.sort(key=lambda x: str(x["source"]))
+        local = {
+            "source": self.source_id,
+            "mode": self.state.mode,
+            "last_seen": now,
+            "is_local": 1.0,
+        }
+        return [local, *remote]
+
     def _update_auto_sync_policy(self, status: str, imported: int, manual: bool) -> None:
         if manual:
             self._sync_idle_multiplier = 1
@@ -317,6 +362,7 @@ class DugongController:
                 elif self.sync_status == "fail":
                     bubble = "Sync failed"
                 elif imported > 0:
+                    self._update_remote_presence(events)
                     self.unread_remote_count += self._signal_event_count(events)
                     representative = self._pick_representative_remote_event(events)
                     if representative is not None:
@@ -338,7 +384,16 @@ class DugongController:
 
     def refresh(self, bubble: str | None = None) -> None:
         sprite = self.renderer.sprite_for(self.state)
-        self.shell.update_view(sprite=sprite, state_text=self._state_text(), bubble=bubble)
+        try:
+            self.shell.update_view(
+                sprite=sprite,
+                state_text=self._state_text(),
+                bubble=bubble,
+                entities=self._shared_entities(),
+                local_source=self.source_id,
+            )
+        except TypeError:
+            self.shell.update_view(sprite=sprite, state_text=self._state_text(), bubble=bubble)
 
     def _on_any_event(self, event) -> None:
         self._state_dirty = True
@@ -353,6 +408,7 @@ class DugongController:
     def on_mode_change(self, mode: str) -> None:
         self.state = switch_mode(self.state, mode)
         self.bus.emit(mode_change_event(mode, source=self.source_id))
+        self._request_fast_sync()
         self.refresh(bubble=f"Mode -> {mode}")
 
     def on_click(self) -> None:
@@ -363,6 +419,7 @@ class DugongController:
 
     def on_manual_ping(self, message: str = "manual_ping") -> None:
         self.bus.emit(manual_ping_event(message, source=self.source_id))
+        self._request_fast_sync()
         self.refresh(bubble="Signal sent")
 
     def on_tick(self) -> None:
@@ -376,6 +433,13 @@ class DugongController:
                 return
             self._sync_pending = True
         self._jobs.put({"kind": "sync", "manual": manual})
+
+    def _request_fast_sync(self) -> None:
+        now = time.monotonic()
+        if (now - self._last_fast_sync_monotonic) < self._fast_sync_cooldown_seconds:
+            return
+        self._last_fast_sync_monotonic = now
+        self._enqueue_sync(manual=False)
 
     def on_sync_tick(self) -> None:
         now = time.monotonic()

@@ -18,9 +18,10 @@ class DugongShell:
         on_click: Callable[[], None],
         on_manual_ping: Callable[[str], None] | None = None,
         on_sync_now: Callable[[], None] | None = None,
+        source_id: str = "local",
     ) -> None:
         self._app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
-        self._win = _DugongWindow(on_mode_change, on_click, on_manual_ping, on_sync_now)
+        self._win = _DugongWindow(on_mode_change, on_click, on_manual_ping, on_sync_now, source_id=source_id)
 
     def schedule_every(self, seconds: int, callback: Callable[[], None]) -> None:
         timer = QtCore.QTimer(self._win)
@@ -29,9 +30,18 @@ class DugongShell:
         timer.start()
         self._win._timers.append(timer)
 
-    def update_view(self, sprite: str, state_text: str, bubble: str | None = None) -> None:
+    def update_view(
+        self,
+        sprite: str,
+        state_text: str,
+        bubble: str | None = None,
+        entities: list[dict[str, str | float]] | None = None,
+        local_source: str | None = None,
+    ) -> None:
         self._win.set_state_text(state_text)
         self._win.apply_sprite_hint(sprite)
+        if entities is not None:
+            self._win.set_shared_entities(entities, local_source=local_source)
         if bubble is not None:
             self._win.show_bubble(bubble)
 
@@ -49,6 +59,7 @@ class _DugongWindow(QtWidgets.QWidget):
         on_click: Callable[[], None],
         on_manual_ping: Callable[[str], None] | None,
         on_sync_now: Callable[[], None] | None,
+        source_id: str = "local",
     ) -> None:
         super().__init__()
         self._on_mode_change = on_mode_change
@@ -56,6 +67,9 @@ class _DugongWindow(QtWidgets.QWidget):
         self._on_manual_ping = on_manual_ping
         self._on_sync_now = on_sync_now
         self._timers: list[QtCore.QTimer] = []
+        self._local_source = source_id or "local"
+        self._peer_entities: dict[str, dict[str, float | str]] = {}
+        self._peer_anim_index: dict[str, int] = {}
 
         self.setWindowFlags(
             QtCore.Qt.FramelessWindowHint
@@ -370,6 +384,57 @@ class _DugongWindow(QtWidgets.QWidget):
         self._target_x = random.uniform(min_x, max_x)
         self._target_y = random.uniform(min_y, max_y)
 
+    def _new_peer(self, source: str, frame: QtGui.QPixmap) -> dict[str, float | str]:
+        min_x, max_x, min_y, max_y = self._motion_bounds(frame)
+        x = random.uniform(min_x, max_x)
+        y = random.uniform(min_y, max_y)
+        target_x = random.uniform(min_x, max_x)
+        target_y = random.uniform(min_y, max_y)
+        vx = random.choice([-1.0, 1.0]) * random.uniform(1.1, 1.8)
+        return {
+            "source": source,
+            "x": x,
+            "y": y,
+            "target_x": target_x,
+            "target_y": target_y,
+            "vx": vx,
+            "vy": 0.0,
+            "speed": random.uniform(1.0, 1.9),
+            "mode": "unknown",
+            "last_seen": time.time(),
+            "float_phase": random.uniform(0.0, 6.28),
+        }
+
+    def set_shared_entities(
+        self, entities: list[dict[str, str | float]], local_source: str | None = None
+    ) -> None:
+        if local_source:
+            self._local_source = local_source
+
+        current_sources: set[str] = set()
+        frame = self._dugong_frame if not self._dugong_frame.isNull() else self._next_frame("swim", "right")
+        if frame.isNull():
+            return
+
+        for entity in entities:
+            source = str(entity.get("source", "")).strip()
+            if not source or source == self._local_source:
+                continue
+            current_sources.add(source)
+
+            peer = self._peer_entities.get(source)
+            if peer is None:
+                peer = self._new_peer(source, frame)
+                self._peer_entities[source] = peer
+
+            peer["mode"] = str(entity.get("mode", peer.get("mode", "unknown")))
+            peer["last_seen"] = float(entity.get("last_seen", time.time()))
+
+        stale = [src for src in self._peer_entities if src not in current_sources]
+        for src in stale:
+            self._peer_entities.pop(src, None)
+            self._peer_anim_index.pop(src, None)
+
     def _reset_dugong_position(self) -> None:
         frame = self._dugong_frame
         if frame.isNull():
@@ -517,6 +582,80 @@ class _DugongWindow(QtWidgets.QWidget):
         self._float_phase += 0.20
         self._y += math.sin(self._float_phase) * 0.25
 
+    def _step_peer_towards_target(self, frame: QtGui.QPixmap, peer: dict[str, float | str]) -> None:
+        min_x, max_x, min_y, max_y = self._motion_bounds(frame)
+        x = float(peer.get("x", min_x))
+        y = float(peer.get("y", min_y))
+        target_x = float(peer.get("target_x", x))
+        target_y = float(peer.get("target_y", y))
+        vx = float(peer.get("vx", 1.0))
+        old_sign = 1 if vx >= 0 else -1
+
+        if not (min_x <= target_x <= max_x and min_y <= target_y <= max_y):
+            target_x = random.uniform(min_x, max_x)
+            target_y = random.uniform(min_y, max_y)
+
+        dx = target_x - x
+        dy = target_y - y
+        dist = math.hypot(dx, dy)
+        if dist < 14:
+            target_x = random.uniform(min_x, max_x)
+            target_y = random.uniform(min_y, max_y)
+            dx = target_x - x
+            dy = target_y - y
+            dist = max(0.1, math.hypot(dx, dy))
+
+        speed = float(peer.get("speed", 1.4))
+        vx = (dx / dist) * speed
+        vy = (dy / dist) * speed
+        if abs(vx) < 0.05:
+            vx = 0.05 if dx >= 0 else -0.05
+
+        x += vx
+        y += vy
+
+        if x < min_x:
+            x = min_x
+            target_x = random.uniform(min_x, max_x)
+            target_y = random.uniform(min_y, max_y)
+        elif x > max_x:
+            x = max_x
+            target_x = random.uniform(min_x, max_x)
+            target_y = random.uniform(min_y, max_y)
+
+        if y < min_y:
+            y = min_y
+            target_x = random.uniform(min_x, max_x)
+            target_y = random.uniform(min_y, max_y)
+        elif y > max_y:
+            y = max_y
+            target_x = random.uniform(min_x, max_x)
+            target_y = random.uniform(min_y, max_y)
+
+        phase = float(peer.get("float_phase", 0.0)) + 0.12
+        y += math.sin(phase) * 0.2
+
+        peer["x"] = x
+        peer["y"] = y
+        peer["target_x"] = target_x
+        peer["target_y"] = target_y
+        peer["vx"] = vx
+        peer["vy"] = vy
+        peer["float_phase"] = phase
+        peer["facing"] = "right" if vx >= 0 else "left"
+        peer["turning"] = 1.0 if (1 if vx >= 0 else -1) != old_sign else 0.0
+
+    def _next_peer_frame(self, source: str, direction: str) -> QtGui.QPixmap:
+        frames = self._frame_list("swim", direction)
+        if not frames:
+            frames = self._frame_list("idle", direction)
+        if not frames:
+            return QtGui.QPixmap()
+        idx = self._peer_anim_index.get(source, 0)
+        frame = frames[idx % len(frames)]
+        self._peer_anim_index[source] = (idx + 1) % len(frames)
+        return frame
+
     def _tick_dugong(self) -> None:
         self._update_frame()
         self.update()
@@ -540,15 +679,12 @@ class _DugongWindow(QtWidgets.QWidget):
                 self._pick_new_target(current)
         else:
             self._maybe_enter_idle()
-            if self._anim_mode == "swim":
-                roll = random.random()
-                if roll < 0.002:
-                    self._trigger_react("shock", ms=900)
-                elif roll < 0.006:
-                    self._trigger_react("chill", ms=900)
 
         if self._anim_mode in {"swim", "turn"}:
             self._step_towards_target(current)
+
+        for peer in self._peer_entities.values():
+            self._step_peer_towards_target(current, peer)
 
         self.update()
 
@@ -578,6 +714,23 @@ class _DugongWindow(QtWidgets.QWidget):
 
         if not self._dugong_frame.isNull():
             painter.drawPixmap(int(self._x), int(self._y), self._dugong_frame)
+            label = self._local_source
+            if label:
+                painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 230)))
+                painter.setFont(QtGui.QFont("Segoe UI", 9, QtGui.QFont.Bold))
+                painter.drawText(int(self._x), int(self._y) - 6, label)
+
+        for source, peer in sorted(self._peer_entities.items(), key=lambda x: x[0]):
+            direction = str(peer.get("facing", "right"))
+            pm = self._next_peer_frame(source, direction if direction in {"left", "right"} else "right")
+            if pm.isNull():
+                continue
+            x = int(float(peer.get("x", 0.0)))
+            y = int(float(peer.get("y", 0.0)))
+            painter.drawPixmap(x, y, pm)
+            painter.setPen(QtGui.QPen(QtGui.QColor(210, 235, 255, 220)))
+            painter.setFont(QtGui.QFont("Segoe UI", 8, QtGui.QFont.DemiBold))
+            painter.drawText(x, y - 4, source)
 
     # -------- hover bar ----------
     def enterEvent(self, _e: QtCore.QEvent) -> None:
@@ -628,22 +781,12 @@ class _DugongWindow(QtWidgets.QWidget):
             return
         self._last_mode = mode
 
-        if mode == "study":
-            self._trigger_react("shock", ms=1300)
-        elif mode == "chill":
-            self._trigger_react("chill", ms=1200)
-        elif mode == "rest":
-            self._trigger_react("chill", ms=1500)
+        if mode == "rest":
             self._anim_mode = "idle"
             self._idle_ticks_left = max(self._idle_ticks_left, 30)
 
     def apply_sprite_hint(self, sprite: str) -> None:
-        if "✨" in sprite:
-            self._trigger_react("happy", ms=1200)
-        elif "🤓" in sprite:
-            self._trigger_react("shock", ms=1200)
-        elif "💤" in sprite:
-            self._trigger_react("chill", ms=1500)
+        _ = sprite
 
     def show_bubble(self, text: str, ms: int = 2500) -> None:
         self._bubble.setText(text)
@@ -655,16 +798,6 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bubble.show()
         self._bubble.raise_()
         self._bubble_timer.start(ms)
-
-        low = text.lower()
-        if any(token in low for token in ("fail", "offline", "error", "auth", "paused", "retry", "rate")):
-            self._trigger_react("shock", ms=1800)
-        elif "ping" in low or "signal" in low:
-            self._trigger_react("happy", ms=1500)
-        elif "sync" in low:
-            self._trigger_react("chill", ms=1200)
-        elif "mode" in low or "study" in low or "rest" in low or "chill" in low:
-            self._trigger_react("chill", ms=1200)
 
     def _emit_mode(self, mode: str) -> None:
         self._on_mode_change(mode)

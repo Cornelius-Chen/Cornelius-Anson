@@ -403,3 +403,18 @@
 - Validation:
   - python -m py_compile dugong/dugong_app/ui/shell_qt.py -> ok
   - (cd dugong) python -m pytest -> 31 passed
+
+## 2026-02-19 07:46:25
+- Scope: Shared aquarium MVP (multi-source Dugong rendering).
+- Files:
+  - dugong/dugong_app/controller.py
+  - dugong/dugong_app/ui/shell_qt.py
+- Changes:
+  - Controller now aggregates remote source presence from synced events (source/mode/last_seen).
+  - Refresh pipeline now passes shared entity list to UI (local + remote sources).
+  - UI now renders multiple independent Dugongs in the same aquarium (one per source).
+  - Each source has independent movement path and name label; local and remote both roam.
+  - Kept backward compatibility by preserving existing DugongShell API behavior.
+- Validation:
+  - python -m py_compile dugong/dugong_app/controller.py dugong/dugong_app/ui/shell_qt.py -> ok
+  - (cd dugong) python -m pytest -> 31 passed
