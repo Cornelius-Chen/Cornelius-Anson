@@ -10,6 +10,7 @@ from dugong_app.config import DugongConfig
 from dugong_app.core.event_bus import EventBus
 from dugong_app.core.events import DugongEvent
 from dugong_app.core.events import (
+    co_focus_milestone_event,
     click_event,
     manual_ping_event,
     mode_change_event,
@@ -61,6 +62,8 @@ class DugongController:
         self._reward_dirty = False
         self._remote_presence: dict[str, dict[str, str | float]] = {}
         self._last_pomo_render_key: tuple[str, str, int] | None = None
+        self._cofocus_last_monotonic = time.monotonic()
+        self._cofocus_seconds = 0.0
 
         self.journal = EventJournal(
             config.data_dir / "event_journal.jsonl",
@@ -85,6 +88,7 @@ class DugongController:
             valid_ratio=(config.reward_valid_ratio_percent / 100.0),
         )
         self.reward.restore(self.reward_storage.load())
+        self._cofocus_seconds = float(self.reward.cofocus_seconds_total)
 
         transport, init_sync_status = self._create_transport()
         self.sync_status = init_sync_status
@@ -266,6 +270,9 @@ class DugongController:
         if event.event_type == "pomo_complete":
             phase = str(event.payload.get("phase", "focus"))
             return f"[{event.source}] completed {phase}"
+        if event.event_type == "co_focus_milestone":
+            mins = int(event.payload.get("milestone_seconds", 0)) // 60
+            return f"[{event.source}] co-focus milestone {mins}m"
         if event.event_type == "reward_grant":
             pearls = int(event.payload.get("pearls", 0))
             return f"[{event.source}] +{pearls} pearls"
@@ -280,6 +287,7 @@ class DugongController:
         priority = {
             "reward_grant": 5,
             "pomo_complete": 5,
+            "co_focus_milestone": 5,
             "manual_ping": 4,
             "pomo_start": 4,
             "mode_change": 3,
@@ -305,6 +313,7 @@ class DugongController:
             "focus_session_end",
             "pomo_start",
             "pomo_complete",
+            "co_focus_milestone",
             "reward_grant",
         }
         count = sum(1 for ev in events if ev.event_type in signal_types)
@@ -330,6 +339,8 @@ class DugongController:
                     "last_seen": 0.0,
                     "event_type": "",
                     "event_id": "",
+                    "pomo_phase": "",
+                    "pomo_session_id": "",
                 },
             )
             entry["last_seen"] = now
@@ -344,10 +355,16 @@ class DugongController:
                 entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
             elif ev.event_type in {"pomo_start", "pomo_resume"}:
                 phase = str(ev.payload.get("phase", "")).lower()
+                entry["pomo_phase"] = phase
+                entry["pomo_session_id"] = str(ev.payload.get("session_id", ""))
                 if phase == "focus":
                     entry["mode"] = "study"
                 elif phase == "break":
                     entry["mode"] = "chill"
+            elif ev.event_type in {"pomo_pause", "pomo_complete", "pomo_skip"}:
+                phase = str(ev.payload.get("phase", ev.payload.get("from_phase", ""))).lower()
+                if phase == "focus":
+                    entry["pomo_phase"] = ""
 
     def _shared_entities(self) -> list[dict[str, str | float]]:
         now = time.time()
@@ -461,7 +478,11 @@ class DugongController:
             self.refresh(bubble=bubble)
 
     def _state_text(self) -> str:
-        return f"E:{self.state.energy} M:{self.state.mood} F:{self.state.focus} [{self.state.mode}] P:{self.reward.pearls}"
+        cofocus_min = int(self.reward.cofocus_seconds_total) // 60
+        return (
+            f"E:{self.state.energy} M:{self.state.mood} F:{self.state.focus} "
+            f"[{self.state.mode}] P:{self.reward.pearls} C:{cofocus_min}m"
+        )
 
     def _pomo_text(self) -> str:
         view = self.pomodoro.view()
@@ -475,6 +496,51 @@ class DugongController:
         phase = view.phase.upper() if view.phase else view.state
         return f"POMO {phase}  {mm:02d}:{ss:02d}"
 
+    def _active_remote_focus_peers(self) -> int:
+        now = time.time()
+        ttl = max(20.0, float(self.sync_interval_seconds * 3))
+        count = 0
+        for info in self._remote_presence.values():
+            if (now - float(info.get("last_seen", 0.0))) > ttl:
+                continue
+            if str(info.get("pomo_phase", "")).lower() == "focus":
+                count += 1
+        return count
+
+    def _update_cofocus_progress(self) -> None:
+        now_mono = time.monotonic()
+        delta = max(0.0, now_mono - self._cofocus_last_monotonic)
+        self._cofocus_last_monotonic = now_mono
+        if delta <= 0.0:
+            return
+        if self.pomodoro.view().state != POMO_FOCUS:
+            return
+        peers = self._active_remote_focus_peers()
+        if peers <= 0:
+            return
+
+        prev = self._cofocus_seconds
+        self._cofocus_seconds += delta
+        self.reward.cofocus_seconds_total = int(self._cofocus_seconds)
+        self._reward_dirty = True
+
+        milestone_seconds = max(60, int(self.config.cofocus_milestone_seconds))
+        prev_idx = int(prev // milestone_seconds)
+        cur_idx = int(self._cofocus_seconds // milestone_seconds)
+        if cur_idx <= prev_idx:
+            return
+        for idx in range(prev_idx + 1, cur_idx + 1):
+            milestone_id = f"{self.source_id}:cofocus:{idx}"
+            self.bus.emit(
+                co_focus_milestone_event(
+                    milestone_id=milestone_id,
+                    milestone_index=idx,
+                    milestone_seconds=(idx * milestone_seconds),
+                    total_cofocus_seconds=int(self._cofocus_seconds),
+                    source=self.source_id,
+                )
+            )
+
     def refresh(self, bubble: str | None = None) -> None:
         sprite = self.renderer.sprite_for(self.state)
         try:
@@ -483,6 +549,11 @@ class DugongController:
                 state_text=self._state_text(),
                 pomo_text=self._pomo_text(),
                 pomo_state=self.pomodoro.view().state,
+                reward_stats={
+                    "pearls": int(self.reward.pearls),
+                    "focus_streak": int(self.reward.focus_streak),
+                    "day_streak": int(self.reward.day_streak),
+                },
                 bubble=bubble,
                 entities=self._shared_entities(),
                 local_source=self.source_id,
@@ -512,6 +583,24 @@ class DugongController:
         elif event.event_type == "pomo_skip" and str(event.source) == self.source_id:
             self.reward.on_skip(str(event.payload.get("from_phase", "")))
             self._reward_dirty = True
+        elif event.event_type == "co_focus_milestone" and str(event.source) == self.source_id:
+            grant = self.reward.grant_for_cofocus(
+                milestone_id=str(event.payload.get("milestone_id", "")),
+                pearls=int(self.config.cofocus_bonus_pearls),
+            )
+            if grant is not None:
+                self._reward_dirty = True
+                self.bus.emit(
+                    reward_grant_event(
+                        pearls=grant.pearls,
+                        streak_bonus=grant.streak_bonus,
+                        reason=grant.reason,
+                        session_id=grant.session_id,
+                        focus_streak=grant.focus_streak,
+                        day_streak=grant.day_streak,
+                        source=self.source_id,
+                    )
+                )
         elif event.event_type == "reward_grant":
             self._reward_dirty = True
         self._jobs.put({"kind": "local_event", "event": event})
@@ -645,6 +734,7 @@ class DugongController:
         self.refresh(bubble="Pomodoro skipped")
 
     def on_pomo_tick(self) -> None:
+        self._update_cofocus_progress()
         events = self.pomodoro.tick()
         if events:
             self._pomo_dirty = True

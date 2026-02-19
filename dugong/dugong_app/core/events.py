@@ -129,3 +129,22 @@ def reward_grant_event(
         },
         source=source,
     )
+
+
+def co_focus_milestone_event(
+    milestone_id: str,
+    milestone_index: int,
+    milestone_seconds: int,
+    total_cofocus_seconds: int,
+    source: str = "dugong_app",
+) -> DugongEvent:
+    return DugongEvent(
+        event_type="co_focus_milestone",
+        payload={
+            "milestone_id": milestone_id,
+            "milestone_index": int(milestone_index),
+            "milestone_seconds": int(milestone_seconds),
+            "total_cofocus_seconds": int(total_cofocus_seconds),
+        },
+        source=source,
+    )

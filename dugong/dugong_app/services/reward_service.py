@@ -25,6 +25,8 @@ class RewardService:
         self.day_streak = 0
         self.last_focus_day = ""
         self.granted_sessions: list[str] = []
+        self.granted_cofocus_milestones: list[str] = []
+        self.cofocus_seconds_total = 0
 
     def snapshot(self) -> dict:
         return {
@@ -33,6 +35,8 @@ class RewardService:
             "day_streak": int(self.day_streak),
             "last_focus_day": self.last_focus_day,
             "granted_sessions": list(self.granted_sessions),
+            "granted_cofocus_milestones": list(self.granted_cofocus_milestones),
+            "cofocus_seconds_total": int(self.cofocus_seconds_total),
             "base_pearls": int(self.base_pearls),
             "valid_ratio": float(self.valid_ratio),
         }
@@ -48,6 +52,11 @@ class RewardService:
         if isinstance(sessions, list):
             self.granted_sessions = [str(s) for s in sessions if str(s).strip()]
         self.granted_sessions = self.granted_sessions[-self.max_granted_sessions :]
+        milestones = payload.get("granted_cofocus_milestones", [])
+        if isinstance(milestones, list):
+            self.granted_cofocus_milestones = [str(s) for s in milestones if str(s).strip()]
+        self.granted_cofocus_milestones = self.granted_cofocus_milestones[-self.max_granted_sessions :]
+        self.cofocus_seconds_total = max(0, int(payload.get("cofocus_seconds_total", self.cofocus_seconds_total)))
         self.base_pearls = max(1, int(payload.get("base_pearls", self.base_pearls)))
         self.valid_ratio = min(1.0, max(0.1, float(payload.get("valid_ratio", self.valid_ratio))))
 
@@ -108,6 +117,26 @@ class RewardService:
             streak_bonus=streak_bonus,
             reason="pomo_complete",
             session_id=session_id,
+            focus_streak=self.focus_streak,
+            day_streak=self.day_streak,
+        )
+
+    def grant_for_cofocus(self, milestone_id: str, pearls: int = 5) -> RewardGrant | None:
+        mid = str(milestone_id).strip()
+        if not mid:
+            return None
+        if mid in self.granted_cofocus_milestones:
+            return None
+        gain = max(1, int(pearls))
+        self.pearls += gain
+        self.granted_cofocus_milestones.append(mid)
+        if len(self.granted_cofocus_milestones) > self.max_granted_sessions:
+            self.granted_cofocus_milestones = self.granted_cofocus_milestones[-self.max_granted_sessions :]
+        return RewardGrant(
+            pearls=gain,
+            streak_bonus=0,
+            reason="co_focus_milestone",
+            session_id=mid,
             focus_streak=self.focus_streak,
             day_streak=self.day_streak,
         )

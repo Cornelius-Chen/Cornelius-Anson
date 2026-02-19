@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -93,6 +94,8 @@ def _cmd_config(_args: argparse.Namespace) -> int:
         "pomo_break_minutes": cfg.pomo_break_minutes,
         "reward_base_pearls": cfg.reward_base_pearls,
         "reward_valid_ratio_percent": cfg.reward_valid_ratio_percent,
+        "cofocus_milestone_seconds": cfg.cofocus_milestone_seconds,
+        "cofocus_bonus_pearls": cfg.cofocus_bonus_pearls,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
@@ -124,11 +127,11 @@ def _cmd_health(_args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_pomo(_args: argparse.Namespace) -> int:
+def _collect_pomo_payload() -> dict:
     data_root = _default_data_root()
     pomo = PomodoroStateStorage(data_root / "pomodoro_state.json").load()
     reward = RewardStateStorage(data_root / "reward_state.json").load()
-    payload = {
+    return {
         "pomodoro": {
             "state": pomo.get("state", "IDLE"),
             "phase": pomo.get("phase", ""),
@@ -137,7 +140,8 @@ def _cmd_pomo(_args: argparse.Namespace) -> int:
             "session_id": pomo.get("session_id", ""),
             "ends_at_wall": pomo.get("ends_at_wall", 0),
             "focus_minutes": int(pomo.get("focus_minutes", 25)),
-            "break_minutes": int(pomo.get("break_minutes", 5),
+            "break_minutes": int(
+                pomo.get("break_minutes", 5),
             ),
         },
         "reward": {
@@ -145,12 +149,37 @@ def _cmd_pomo(_args: argparse.Namespace) -> int:
             "focus_streak": int(reward.get("focus_streak", 0)),
             "day_streak": int(reward.get("day_streak", 0)),
             "last_focus_day": reward.get("last_focus_day", ""),
+            "cofocus_seconds_total": int(reward.get("cofocus_seconds_total", 0)),
+            "granted_cofocus_milestones_count": len(reward.get("granted_cofocus_milestones", []))
+            if isinstance(reward.get("granted_cofocus_milestones", []), list)
+            else 0,
             "granted_sessions_count": len(reward.get("granted_sessions", []))
             if isinstance(reward.get("granted_sessions", []), list)
             else 0,
         },
     }
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _cmd_pomo(_args: argparse.Namespace) -> int:
+    watch = bool(getattr(_args, "watch", False))
+    interval = max(0.1, float(getattr(_args, "interval", 1.0)))
+    iterations = int(getattr(_args, "iterations", 0))
+
+    if not watch:
+        print(json.dumps(_collect_pomo_payload(), ensure_ascii=False, indent=2))
+        return 0
+
+    count = 0
+    try:
+        while True:
+            payload = _collect_pomo_payload()
+            print(json.dumps(payload, ensure_ascii=False))
+            count += 1
+            if iterations > 0 and count >= iterations:
+                break
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        return 0
     return 0
 
 
@@ -178,6 +207,14 @@ def main() -> int:
     p_health.set_defaults(func=_cmd_health)
 
     p_pomo = subparsers.add_parser("pomo", help="Show pomodoro and reward snapshot")
+    p_pomo.add_argument("--watch", action="store_true", help="stream snapshot repeatedly")
+    p_pomo.add_argument("--interval", type=float, default=1.0, help="watch interval in seconds")
+    p_pomo.add_argument(
+        "--iterations",
+        type=int,
+        default=0,
+        help="watch loop count (0 = infinite; useful for tests)",
+    )
     p_pomo.set_defaults(func=_cmd_pomo)
 
     args = parser.parse_args()

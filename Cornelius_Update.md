@@ -512,3 +512,102 @@
 - Validation:
   - python -m py_compile dugong/scripts/stress_pomo.py dugong/tests/test_stress_pomo.py -> ok
   - (cd dugong) python -m pytest -q -> 39 passed
+
+## 2026-02-19 10:37:10
+- Scope: V2 5-minute demo helper script (fixed timeline + operator prompts).
+- Files:
+  - dugong/scripts/demo_v2.py
+  - dugong/tests/test_demo_v2.py
+  - dugong/README.md
+- Changes:
+  - Added demo_v2.py to print deterministic 5-minute A/B demo timeline.
+  - Added A/B env command blocks (GitHub or file transport) for quick setup.
+  - Added optional --run countdown mode for live demo operation.
+  - Added optional co-focus segment in timeline via --include-cofocus.
+  - Added smoke unit test for timeline end marker.
+- Validation:
+  - python -m py_compile dugong/scripts/demo_v2.py dugong/tests/test_demo_v2.py -> ok
+  - (cd dugong) python -m pytest -q -> 40 passed
+
+## 2026-02-19 10:48:53
+- Scope: co-focus milestone system (overlap focus tracking + milestone bonus).
+- Files:
+  - dugong/dugong_app/controller.py
+  - dugong/dugong_app/core/events.py
+  - dugong/dugong_app/services/reward_service.py
+  - dugong/dugong_app/config.py
+  - dugong/dugong_app/debug.py
+  - dugong/tests/test_pomodoro_reward.py
+  - dugong/tests/test_debug_cli.py
+  - dugong/README.md
+- Changes:
+  - Added co_focus_milestone event and remote reflection bubble/priority handling.
+  - Controller now tracks local+remote focus overlap seconds and emits milestone events when threshold reached.
+  - Added configurable co-focus params:
+    - DUGONG_COFOCUS_MILESTONE_SECONDS (default 600)
+    - DUGONG_COFOCUS_BONUS_PEARLS (default 5)
+  - Reward service now supports idempotent co-focus milestone grants (granted_cofocus_milestones).
+  - Reward snapshot extended with cofocus_seconds_total and milestone grant history.
+  - debug pomo now outputs co-focus counters.
+  - State text now includes co-focus minutes (C:<m>m).
+- Validation:
+  - (cd dugong) python -m pytest -q -> 42 passed
+
+## 2026-02-19 10:51:17
+- Scope: Added debug pomo --watch realtime monitor.
+- Files:
+  - dugong/dugong_app/debug.py
+  - dugong/tests/test_debug_cli.py
+  - dugong/README.md
+- Changes:
+  - python -m dugong_app.debug pomo now supports:
+    - --watch (stream snapshots)
+    - --interval (refresh interval, seconds)
+    - --iterations (loop limit; 0=infinite, used in tests)
+  - Added automated test for watch mode output stability.
+  - README debug command examples updated.
+- Validation:
+  - python -m py_compile dugong/dugong_app/debug.py dugong/tests/test_debug_cli.py -> ok
+  - (cd dugong) python -m pytest -q -> 43 passed
+
+## 2026-02-19 10:53:16
+- Scope: UI polish pass (minimal, no logic change): compact controls + pomodoro corner chip + unified completion feedback style.
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+- Changes:
+  - Added top-right Pomodoro status chip with state color coding (FOCUS/BREAK/PAUSED/IDLE).
+  - Reduced control bar visual weight: lower height, compact button sizing/typography.
+  - Kept hover-to-show interaction and existing callbacks unchanged.
+  - Unified completion-like bubble feedback style: complete/pearls/milestone messages stay longer and trigger short celebration react.
+- Validation:
+  - python -m py_compile dugong/dugong_app/ui/shell_qt.py -> ok
+  - (cd dugong) python -m pytest -q -> 43 passed
+
+## 2026-02-19 10:56:29
+- Scope: Pomodoro control UX adjustment: Start/Pause/Resume now uses a single toggle button.
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+- Changes:
+  - Replaced separate pomo + pause buttons with one dynamic toggle button.
+  - Button label/state mapping:
+    - IDLE -> start
+    - FOCUS/BREAK -> pause
+    - PAUSED -> esume
+  - Toggle keeps existing callbacks and logic (start or pause/resume) unchanged.
+- Validation:
+  - python -m py_compile dugong/dugong_app/ui/shell_qt.py -> ok
+  - (cd dugong) python -m pytest -q -> 43 passed
+
+## 2026-02-19 11:10:45
+- Scope: UI reward feedback upgrade (pearl counter + floating reward text).
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/controller.py
+- Changes:
+  - Added top-left Pearls counter chip: total pearls + focus/day streak.
+  - Added floating +N pearls text animation above local Dugong when pearls increase.
+  - Extended UI update contract with optional eward_stats payload (controller now passes it).
+  - Preserved core logic/event flow (display-only enhancement).
+- Validation:
+  - python -m py_compile dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/controller.py -> ok
+  - (cd dugong) python -m pytest -q -> 43 passed

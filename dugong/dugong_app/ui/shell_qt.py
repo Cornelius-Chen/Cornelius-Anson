@@ -52,6 +52,7 @@ class DugongShell:
         state_text: str,
         pomo_text: str | None = None,
         pomo_state: str | None = None,
+        reward_stats: dict[str, int] | None = None,
         bubble: str | None = None,
         entities: list[dict[str, str | float]] | None = None,
         local_source: str | None = None,
@@ -61,6 +62,8 @@ class DugongShell:
             self._win.set_pomo_text(pomo_text)
         if pomo_state is not None:
             self._win.set_pomo_state(pomo_state)
+        if reward_stats is not None:
+            self._win.set_reward_stats(reward_stats)
         self._win.apply_sprite_hint(sprite)
         if entities is not None:
             self._win.set_shared_entities(entities, local_source=local_source)
@@ -135,6 +138,10 @@ class _DugongWindow(QtWidgets.QWidget):
         self._last_mode = ""
         self._pomo_state = "IDLE"
         self._last_pomo_state = "IDLE"
+        self._pearls_total = 0
+        self._focus_streak = 0
+        self._day_streak = 0
+        self._floating_rewards: list[dict[str, float | str]] = []
 
         self._dugong_frame = QtGui.QPixmap()
         self._x = 0.0
@@ -165,13 +172,33 @@ class _DugongWindow(QtWidgets.QWidget):
         self._title.setStyleSheet("color: rgba(255,255,255,210); font-size: 18px; font-weight: 700;")
         self._title.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
 
+        self._pearl = QtWidgets.QLabel("Pearls 0  |  S0 D0", self)
+        self._pearl.setAlignment(QtCore.Qt.AlignCenter)
+        self._pearl.setFixedHeight(22)
+        self._pearl.setMinimumWidth(170)
+        self._pearl.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(242,252,255,245);
+                background: rgba(23,58,88,205);
+                border: 1px solid rgba(150,210,240,180);
+                border-radius: 11px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 0 10px;
+            }
+            """
+        )
+
         self._state = QtWidgets.QLabel("state", self)
         self._state.setStyleSheet("color: rgba(255,255,255,210); font-size: 14px;")
         self._state.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
 
         self._pomo = QtWidgets.QLabel("POMO IDLE", self)
-        self._pomo.setStyleSheet("color: rgba(220,240,255,220); font-size: 13px; font-weight: 600;")
-        self._pomo.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self._pomo.setAlignment(QtCore.Qt.AlignCenter)
+        self._pomo.setFixedHeight(22)
+        self._pomo.setMinimumWidth(170)
+        self._apply_pomo_chip_style("IDLE")
 
         self._bubble = QtWidgets.QLabel("", self)
         self._bubble.setWordWrap(True)
@@ -190,8 +217,8 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bubble_timer.timeout.connect(self._bubble.hide)
 
         self._bar = QtWidgets.QFrame(self)
-        self._bar.setStyleSheet("background: rgba(10,18,28,210); border-radius: 12px;")
-        self._bar.setFixedHeight(44)
+        self._bar.setStyleSheet("background: rgba(10,18,28,195); border-radius: 10px;")
+        self._bar.setFixedHeight(38)
         lay = QtWidgets.QHBoxLayout(self._bar)
         lay.setContentsMargins(10, 6, 10, 6)
         lay.setSpacing(10)
@@ -205,24 +232,27 @@ class _DugongWindow(QtWidgets.QWidget):
                     color: white;
                     background: {color};
                     border: none;
-                    padding: 6px 12px;
-                    border-radius: 10px;
-                    font-weight: 700;
+                    padding: 5px 10px;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    font-size: 12px;
                 }}
             """
             )
+            b.setMinimumWidth(50)
             b.clicked.connect(fn)
             return b
 
         lay.addWidget(mk_btn("study", "#1d3a57", lambda: self._emit_mode("study")))
         lay.addWidget(mk_btn("chill", "#1d3a57", lambda: self._emit_mode("chill")))
         lay.addWidget(mk_btn("rest", "#1d3a57", lambda: self._emit_mode("rest")))
-        lay.addWidget(mk_btn("pomo", "#7b3f00", self._emit_pomo_start))
-        lay.addWidget(mk_btn("pause", "#4d3d73", self._emit_pomo_pause_resume))
+        self._pomo_toggle = mk_btn("start", "#7b3f00", self._emit_pomo_toggle)
+        lay.addWidget(self._pomo_toggle)
         lay.addWidget(mk_btn("skip", "#874321", self._emit_pomo_skip))
         lay.addWidget(mk_btn("ping", "#275e44", self._emit_ping))
         lay.addWidget(mk_btn("sync", "#6b4f1f", self._emit_sync))
         lay.addWidget(mk_btn("quit", "#6a2c2c", self._emit_quit))
+        self._update_pomo_toggle_label(self._pomo_state)
         self._bar.hide()
 
         self._hide_bar_timer = QtCore.QTimer(self)
@@ -490,7 +520,11 @@ class _DugongWindow(QtWidgets.QWidget):
     def _layout_overlay(self) -> None:
         self._title.setGeometry(0, 8, self.width(), 26)
         self._state.setGeometry(0, self.height() - 28, self.width(), 20)
-        self._pomo.setGeometry(0, self.height() - 48, self.width(), 18)
+        pearl_w = max(170, min(320, self._pearl.sizeHint().width() + 16))
+        self._pearl.setGeometry(14, 10, pearl_w, 22)
+        chip_w = max(170, min(280, self._pomo.sizeHint().width() + 16))
+        x = self.width() - chip_w - 14
+        self._pomo.setGeometry(x, 10, chip_w, 22)
 
     def _place_bar(self) -> None:
         self._bar.adjustSize()
@@ -943,6 +977,7 @@ class _DugongWindow(QtWidgets.QWidget):
                 continue
             self._step_peer_towards_target(current, peer)
 
+        self._tick_floating_rewards()
         self.update()
 
     def _tick_bg(self) -> None:
@@ -1020,6 +1055,22 @@ class _DugongWindow(QtWidgets.QWidget):
                 anchor_w=self._dugong_frame.width(),
                 anchor_h=self._dugong_frame.height(),
             )
+
+        if self._floating_rewards:
+            font = QtGui.QFont("Segoe UI", 10, QtGui.QFont.DemiBold)
+            painter.setFont(font)
+            for item in self._floating_rewards:
+                life = max(0.0, min(1.0, float(item.get("life", 0.0)) / 1.4))
+                alpha = int(255 * life)
+                text = str(item.get("text", ""))
+                x = int(float(item.get("x", 0.0)))
+                y = int(float(item.get("y", 0.0)))
+                shadow = QtGui.QColor(12, 26, 38, alpha)
+                fg = QtGui.QColor(170, 255, 225, alpha)
+                painter.setPen(shadow)
+                painter.drawText(x + 1, y + 1, text)
+                painter.setPen(fg)
+                painter.drawText(x, y, text)
 
         for source, peer in sorted(self._peer_entities.items(), key=lambda x: x[0]):
             pm = self._peer_current_frame.get(source)
@@ -1100,13 +1151,16 @@ class _DugongWindow(QtWidgets.QWidget):
 
     def set_pomo_text(self, text: str) -> None:
         self._pomo.setText(text)
+        self._layout_overlay()
 
     def set_pomo_state(self, state: str) -> None:
         s = (state or "").upper()
         self._pomo_state = s
+        self._update_pomo_toggle_label(s)
         if s == self._last_pomo_state:
             return
         self._last_pomo_state = s
+        self._apply_pomo_chip_style(s)
         if s == "FOCUS":
             if self._anim_mode not in {"react", "turn"}:
                 self._anim_mode = "swim"
@@ -1117,6 +1171,52 @@ class _DugongWindow(QtWidgets.QWidget):
             if self._anim_mode not in {"react", "turn"}:
                 self._anim_mode = "idle"
                 self._idle_ticks_left = max(self._idle_ticks_left, 16)
+
+    def set_reward_stats(self, stats: dict[str, int]) -> None:
+        pearls = int(stats.get("pearls", self._pearls_total))
+        focus_streak = int(stats.get("focus_streak", self._focus_streak))
+        day_streak = int(stats.get("day_streak", self._day_streak))
+
+        delta = pearls - self._pearls_total
+        if delta > 0:
+            self._spawn_reward_float(delta)
+
+        self._pearls_total = pearls
+        self._focus_streak = focus_streak
+        self._day_streak = day_streak
+        self._pearl.setText(f"Pearls {pearls}  |  S{focus_streak} D{day_streak}")
+        self._layout_overlay()
+
+    def _spawn_reward_float(self, gain: int) -> None:
+        if self._dugong_frame.isNull():
+            return
+        base_x = self._x + (self._dugong_frame.width() * 0.52)
+        base_y = self._y + (self._dugong_frame.height() * 0.18)
+        self._floating_rewards.append(
+            {
+                "x": float(base_x),
+                "y": float(base_y),
+                "vy": -0.75,
+                "life": 1.4,
+                "text": f"+{int(gain)} pearls",
+            }
+        )
+        if len(self._floating_rewards) > 8:
+            self._floating_rewards = self._floating_rewards[-8:]
+
+    def _tick_floating_rewards(self) -> None:
+        if not self._floating_rewards:
+            return
+        dt = max(0.01, self._world_tick_ms / 1000.0)
+        alive: list[dict[str, float | str]] = []
+        for item in self._floating_rewards:
+            life = float(item.get("life", 0.0)) - dt
+            if life <= 0:
+                continue
+            item["life"] = life
+            item["y"] = float(item.get("y", 0.0)) + float(item.get("vy", -0.75))
+            alive.append(item)
+        self._floating_rewards = alive
 
     def apply_sprite_hint(self, sprite: str) -> None:
         _ = sprite
@@ -1130,7 +1230,67 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bubble.move((self.width() - self._bubble.width()) // 2, int(self.height() * 0.60))
         self._bubble.show()
         self._bubble.raise_()
-        self._bubble_timer.start(ms)
+        life = ms
+        lowered = text.lower()
+        if "complete" in lowered or "pearls" in lowered or "milestone" in lowered:
+            life = max(ms, 2600)
+            if self._anim_mode not in {"turn"}:
+                self._trigger_react("chill", ms=1800)
+        self._bubble_timer.start(life)
+
+    def _apply_pomo_chip_style(self, state: str) -> None:
+        s = (state or "").upper()
+        bg = "rgba(30,52,75,205)"
+        border = "rgba(130,170,210,180)"
+        fg = "rgba(240,248,255,245)"
+        if s == "FOCUS":
+            bg = "rgba(20,74,44,210)"
+            border = "rgba(120,220,165,190)"
+        elif s == "BREAK":
+            bg = "rgba(78,58,22,210)"
+            border = "rgba(240,205,120,190)"
+        elif s == "PAUSED":
+            bg = "rgba(63,47,96,210)"
+            border = "rgba(186,160,246,185)"
+        self._pomo.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {fg};
+                background: {bg};
+                border: 1px solid {border};
+                border-radius: 11px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 0 10px;
+            }}
+            """
+        )
+
+    def _update_pomo_toggle_label(self, state: str) -> None:
+        s = (state or "").upper()
+        if s in {"FOCUS", "BREAK"}:
+            text = "pause"
+            color = "#4d3d73"
+        elif s == "PAUSED":
+            text = "resume"
+            color = "#2b5d58"
+        else:
+            text = "start"
+            color = "#7b3f00"
+        self._pomo_toggle.setText(text)
+        self._pomo_toggle.setStyleSheet(
+            f"""
+            QPushButton {{
+                color: white;
+                background: {color};
+                border: none;
+                padding: 5px 10px;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 12px;
+            }}
+            """
+        )
 
     def _emit_mode(self, mode: str) -> None:
         # Keep a short deterministic action clip when user clicks mode buttons.
@@ -1153,6 +1313,13 @@ class _DugongWindow(QtWidgets.QWidget):
     def _emit_pomo_pause_resume(self) -> None:
         if self._on_pomo_pause_resume is not None:
             self._on_pomo_pause_resume()
+
+    def _emit_pomo_toggle(self) -> None:
+        s = self._pomo_state.upper()
+        if s in {"FOCUS", "BREAK", "PAUSED"}:
+            self._emit_pomo_pause_resume()
+            return
+        self._emit_pomo_start()
 
     def _emit_pomo_skip(self) -> None:
         if self._on_pomo_skip is not None:

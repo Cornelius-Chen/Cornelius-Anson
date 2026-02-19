@@ -20,6 +20,7 @@ python -m dugong_app.debug summary --today
 python -m dugong_app.debug config
 python -m dugong_app.debug health
 python -m dugong_app.debug pomo
+python -m dugong_app.debug pomo --watch --interval 0.5
 python -m dugong_app.debug compact-journal --keep-days 7 --dry-run
 python -m dugong_app.debug compact-journal --keep-days 7
 ```
@@ -36,6 +37,16 @@ python scripts/stress_pomo.py --mode fast --minutes 3 --seed 42 --clean
 
 # pomodoro long soak
 python scripts/stress_pomo.py --mode soak --hours 2 --restart-rate 0.02 --net-jitter 0.1 --clean
+```
+
+V2 demo helper (5-minute script):
+
+```bash
+# print fixed timeline + env blocks for A/B
+python scripts/demo_v2.py --transport github --repo owner/repo --include-cofocus
+
+# run real-time timeline countdown
+python scripts/demo_v2.py --transport github --repo owner/repo --include-cofocus --run
 ```
 
 Sprite prep pipeline (AnimateDiff/Runway output -> PNG frames):
@@ -96,6 +107,8 @@ Optional env:
 - `DUGONG_POMO_BREAK_MINUTES` (default `5`)
 - `DUGONG_REWARD_BASE_PEARLS` (default `10`)
 - `DUGONG_REWARD_VALID_RATIO_PERCENT` (default `80`, reward threshold)
+- `DUGONG_COFOCUS_MILESTONE_SECONDS` (default `600`)
+- `DUGONG_COFOCUS_BONUS_PEARLS` (default `5`)
 
 ## Pomodoro V1 (manual-start anti-AFK)
 
@@ -116,6 +129,7 @@ Optional env:
   - `reward_state.json`
 - Synced high-value events:
   - `pomo_start`, `pomo_pause`, `pomo_resume`, `pomo_skip`, `pomo_complete`, `reward_grant`
+  - `co_focus_milestone` (when local+remote focus overlap reaches milestone)
 
 ## Demo script (2 machines)
 

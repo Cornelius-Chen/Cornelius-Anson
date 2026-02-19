@@ -51,6 +51,8 @@ class DugongConfig:
     pomo_break_minutes: int
     reward_base_pearls: int
     reward_valid_ratio_percent: int
+    cofocus_milestone_seconds: int
+    cofocus_bonus_pearls: int
 
     @classmethod
     def from_env(cls, repo_root: Path) -> "DugongConfig":
@@ -84,4 +86,6 @@ class DugongConfig:
             pomo_break_minutes=max(1, _env_int("DUGONG_POMO_BREAK_MINUTES", 5)),
             reward_base_pearls=max(1, _env_int("DUGONG_REWARD_BASE_PEARLS", 10)),
             reward_valid_ratio_percent=max(50, min(100, _env_int("DUGONG_REWARD_VALID_RATIO_PERCENT", 80))),
+            cofocus_milestone_seconds=max(60, _env_int("DUGONG_COFOCUS_MILESTONE_SECONDS", 600)),
+            cofocus_bonus_pearls=max(1, _env_int("DUGONG_COFOCUS_BONUS_PEARLS", 5)),
         )

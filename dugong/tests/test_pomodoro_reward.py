@@ -125,3 +125,26 @@ def test_reward_threshold_boundary_exact_ratio_grants() -> None:
         {"phase": "focus", "session_id": "boundary", "completed_s": 80, "duration_s": 100}
     )
     assert grant is not None
+
+
+def test_reward_cofocus_milestone_is_idempotent() -> None:
+    reward = RewardService(base_pearls=10, valid_ratio=0.8)
+    reward.cofocus_seconds_total = 600
+    g1 = reward.grant_for_cofocus("cornelius:cofocus:1", pearls=5)
+    assert g1 is not None
+    assert reward.pearls == 5
+    g2 = reward.grant_for_cofocus("cornelius:cofocus:1", pearls=5)
+    assert g2 is None
+    assert reward.pearls == 5
+
+
+def test_reward_snapshot_restore_carries_cofocus_fields() -> None:
+    reward = RewardService(base_pearls=10, valid_ratio=0.8)
+    reward.cofocus_seconds_total = 123
+    reward.grant_for_cofocus("a:cofocus:1", pearls=3)
+    snap = reward.snapshot()
+
+    restored = RewardService(base_pearls=10, valid_ratio=0.8)
+    restored.restore(snap)
+    assert restored.cofocus_seconds_total == 123
+    assert "a:cofocus:1" in restored.granted_cofocus_milestones
