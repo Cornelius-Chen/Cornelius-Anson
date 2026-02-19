@@ -33,6 +33,7 @@ def _default_data_dir(repo_root: Path) -> Path:
 @dataclass(frozen=True)
 class DugongConfig:
     source_id: str
+    skin_id: str
     transport: str
     tick_seconds: int
     sync_interval_seconds: int
@@ -51,6 +52,8 @@ class DugongConfig:
     def from_env(cls, repo_root: Path) -> "DugongConfig":
         data_dir = _default_data_dir(repo_root)
         source_id = os.getenv("DUGONG_SOURCE_ID", "unknown").strip() or "unknown"
+        # "auto" means resolve by source_id from skin_map.json in UI assets.
+        skin_id = os.getenv("DUGONG_SKIN_ID", "auto").strip() or "auto"
         transport = os.getenv("DUGONG_TRANSPORT", "file").strip().lower() or "file"
         file_transport_default = data_dir / "transport_shared"
         file_transport_dir = Path(os.getenv("DUGONG_FILE_TRANSPORT_DIR", str(file_transport_default)))
@@ -59,6 +62,7 @@ class DugongConfig:
 
         return cls(
             source_id=source_id,
+            skin_id=skin_id,
             transport=transport,
             tick_seconds=max(1, _env_int("DUGONG_TICK_SECONDS", 60)),
             sync_interval_seconds=max(1, _env_int("DUGONG_SYNC_INTERVAL_SECONDS", 10)),

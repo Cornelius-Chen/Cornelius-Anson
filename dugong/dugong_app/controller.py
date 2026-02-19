@@ -125,6 +125,7 @@ class DugongController:
                 on_manual_ping=self.on_manual_ping,
                 on_sync_now=self.on_sync_now,
                 source_id=self.source_id,
+                skin_id=self.config.skin_id,
             )
         except TypeError:
             return DugongShell(

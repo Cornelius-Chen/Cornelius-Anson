@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+import json
+
 import math
 import random
 import re
@@ -19,9 +21,17 @@ class DugongShell:
         on_manual_ping: Callable[[str], None] | None = None,
         on_sync_now: Callable[[], None] | None = None,
         source_id: str = "local",
+        skin_id: str = "default",
     ) -> None:
         self._app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
-        self._win = _DugongWindow(on_mode_change, on_click, on_manual_ping, on_sync_now, source_id=source_id)
+        self._win = _DugongWindow(
+            on_mode_change,
+            on_click,
+            on_manual_ping,
+            on_sync_now,
+            source_id=source_id,
+            skin_id=skin_id,
+        )
 
     def schedule_every(self, seconds: int, callback: Callable[[], None]) -> None:
         timer = QtCore.QTimer(self._win)
@@ -60,6 +70,7 @@ class _DugongWindow(QtWidgets.QWidget):
         on_manual_ping: Callable[[str], None] | None,
         on_sync_now: Callable[[], None] | None,
         source_id: str = "local",
+        skin_id: str = "default",
     ) -> None:
         super().__init__()
         self._on_mode_change = on_mode_change
@@ -88,9 +99,14 @@ class _DugongWindow(QtWidgets.QWidget):
         self._press_global = QtCore.QPoint(0, 0)
         self._drag_offset = QtCore.QPoint(0, 0)
 
-        assets_dir = Path(__file__).resolve().parent / "assets"
-        self._bg_src = self._load_background(assets_dir)
-        self._frames_raw, self._react_raw = self._load_character_assets(assets_dir)
+        self._assets_root = Path(__file__).resolve().parent / "assets"
+        self._skin_root = self._assets_root / "dugong_skin"
+        self._skin_id = self._resolve_skin_id(self._local_source, skin_id)
+        self._local_skin_assets_dir = self._resolve_skin_assets_dir(self._skin_root, self._skin_id)
+        self._peer_skin_assets_dir = self._resolve_skin_assets_dir(self._skin_root, "default")
+        self._bg_src = self._load_background(self._local_skin_assets_dir)
+        self._local_frames_raw, self._local_react_raw = self._load_character_assets(self._local_skin_assets_dir)
+        self._peer_frames_raw, self._peer_react_raw = self._load_character_assets(self._peer_skin_assets_dir)
 
         self._anim_mode = "swim"  # swim | idle | turn | react
         self._react_kind = "chill"  # study | chill | rest (with legacy aliases)
@@ -119,8 +135,10 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bg_offset = 0.0
 
         self._bg_scaled: QtGui.QPixmap | None = None
-        self._frames_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
-        self._react_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
+        self._local_frames_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
+        self._local_react_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
+        self._peer_frames_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
+        self._peer_react_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
         self._rebuild_scaled_pixmaps()
 
         self._title = QtWidgets.QLabel("Dugong", self)
@@ -204,8 +222,52 @@ class _DugongWindow(QtWidgets.QWidget):
         self._update_frame(force=True)
 
     # -------- assets ----------
+    def _resolve_skin_id(self, source_id: str, requested_skin_id: str) -> str:
+        requested = (requested_skin_id or "").strip()
+        if requested and requested.lower() != "auto":
+            return requested
+
+        mapping_file = self._skin_root / "skin_map.json"
+        default_skin = "default"
+        try:
+            if mapping_file.exists():
+                data = json.loads(mapping_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    default_skin = str(data.get("default_skin", default_skin)).strip() or default_skin
+                    source_to_skin = data.get("source_to_skin", {})
+                    if isinstance(source_to_skin, dict):
+                        sid = (source_id or "").strip().lower()
+                        for raw_key, raw_skin in source_to_skin.items():
+                            if str(raw_key).strip().lower() == sid:
+                                mapped = str(raw_skin).strip()
+                                if mapped:
+                                    return mapped
+        except Exception:
+            # Keep startup resilient even if mapping file is malformed.
+            pass
+        return default_skin
+
+    def _resolve_skin_assets_dir(self, skin_root: Path, skin_id: str) -> Path:
+        # Priority:
+        # 1) assets/dugong_skin/<skin_id>/
+        # 2) assets/dugong_skin/default/
+        # 3) assets/default/ (legacy)
+        # 4) assets/ (legacy flat layout)
+        candidate = skin_root / skin_id
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+        fallback_default = skin_root / "default"
+        if fallback_default.exists() and fallback_default.is_dir():
+            return fallback_default
+        legacy_default = self._assets_root / "default"
+        if legacy_default.exists() and legacy_default.is_dir():
+            return legacy_default
+        return self._assets_root
+
     def _load_background(self, assets_dir: Path) -> QtGui.QPixmap:
         bg = QtGui.QPixmap(str(assets_dir / "bg_ocean.png"))
+        if bg.isNull() and assets_dir != self._assets_root:
+            bg = QtGui.QPixmap(str(self._assets_root / "bg_ocean.png"))
         if not bg.isNull():
             return bg
 
@@ -220,11 +282,22 @@ class _DugongWindow(QtWidgets.QWidget):
         return fallback
 
     def _list_pngs(self, assets_dir: Path) -> list[Path]:
-        return [
+        if not assets_dir.exists():
+            return []
+        files = [
             path
             for path in assets_dir.iterdir()
             if path.is_file() and path.suffix.lower() == ".png"
         ]
+        if files:
+            return files
+        if assets_dir != self._assets_root and self._assets_root.exists():
+            return [
+                path
+                for path in self._assets_root.iterdir()
+                if path.is_file() and path.suffix.lower() == ".png"
+            ]
+        return files
 
     def _sort_with_trailing_number(self, paths: list[Path]) -> list[Path]:
         def key_fn(path: Path):
@@ -341,26 +414,36 @@ class _DugongWindow(QtWidgets.QWidget):
 
         target_h = int(h * 0.36)
 
-        right_frames = {
-            key: self._scale_and_pad(frames, target_h)
-            for key, frames in self._frames_raw.items()
-        }
-        right_reacts = {
-            key: self._scale_and_pad(frames, target_h)
-            for key, frames in self._react_raw.items()
-        }
+        def build_scaled(
+            frames_raw: dict[str, list[QtGui.QPixmap]],
+            react_raw: dict[str, list[QtGui.QPixmap]],
+        ) -> tuple[dict[str, dict[str, list[QtGui.QPixmap]]], dict[str, dict[str, list[QtGui.QPixmap]]]]:
+            right_frames = {
+                key: self._scale_and_pad(frames, target_h)
+                for key, frames in frames_raw.items()
+            }
+            right_reacts = {
+                key: self._scale_and_pad(frames, target_h)
+                for key, frames in react_raw.items()
+            }
+            frames_scaled = {
+                "right": right_frames,
+                "left": {key: self._mirror_frames(frames) for key, frames in right_frames.items()},
+            }
+            reacts_scaled = {
+                "right": right_reacts,
+                "left": {key: self._mirror_frames(frames) for key, frames in right_reacts.items()},
+            }
+            return frames_scaled, reacts_scaled
 
-        self._frames_scaled["right"] = right_frames
-        self._react_scaled["right"] = right_reacts
-
-        self._frames_scaled["left"] = {
-            key: self._mirror_frames(frames)
-            for key, frames in right_frames.items()
-        }
-        self._react_scaled["left"] = {
-            key: self._mirror_frames(frames)
-            for key, frames in right_reacts.items()
-        }
+        self._local_frames_scaled, self._local_react_scaled = build_scaled(
+            self._local_frames_raw,
+            self._local_react_raw,
+        )
+        self._peer_frames_scaled, self._peer_react_scaled = build_scaled(
+            self._peer_frames_raw,
+            self._peer_react_raw,
+        )
 
     def _layout_overlay(self) -> None:
         self._title.setGeometry(0, 8, self.width(), 26)
@@ -475,24 +558,26 @@ class _DugongWindow(QtWidgets.QWidget):
         super().showEvent(e)
 
     # -------- animation state ----------
-    def _frame_list(self, anim: str, direction: str) -> list[QtGui.QPixmap]:
+    def _frame_list(self, anim: str, direction: str, role: str = "local") -> list[QtGui.QPixmap]:
+        frames_scaled = self._local_frames_scaled if role == "local" else self._peer_frames_scaled
+        react_scaled = self._local_react_scaled if role == "local" else self._peer_react_scaled
         if anim == "react":
-            return self._react_scaled.get(direction, {}).get(self._react_kind, [])
-        return self._frames_scaled.get(direction, {}).get(anim, [])
+            return react_scaled.get(direction, {}).get(self._react_kind, [])
+        return frames_scaled.get(direction, {}).get(anim, [])
 
-    def _safe_anim(self, anim: str, direction: str) -> str:
-        if self._frame_list(anim, direction):
+    def _safe_anim(self, anim: str, direction: str, role: str = "local") -> str:
+        if self._frame_list(anim, direction, role=role):
             return anim
-        if self._frame_list("swim", direction):
+        if self._frame_list("swim", direction, role=role):
             return "swim"
-        if self._frame_list("idle", direction):
+        if self._frame_list("idle", direction, role=role):
             return "idle"
         return "turn"
 
     def _next_frame(self, anim: str, direction: str) -> QtGui.QPixmap:
-        safe_anim = self._safe_anim(anim, direction)
+        safe_anim = self._safe_anim(anim, direction, role="local")
         key = f"{direction}:{safe_anim}:{self._react_kind if safe_anim == 'react' else '-'}"
-        frames = self._frame_list(safe_anim, direction)
+        frames = self._frame_list(safe_anim, direction, role="local")
         if not frames:
             return QtGui.QPixmap()
         idx = self._anim_index.get(key, 0)
@@ -518,9 +603,9 @@ class _DugongWindow(QtWidgets.QWidget):
 
     def _trigger_react(self, kind: str, ms: int = 1400) -> None:
         direction = "right" if self._vx >= 0 else "left"
-        if not self._react_scaled.get(direction, {}).get(kind):
+        if not self._local_react_scaled.get(direction, {}).get(kind):
             # Graceful fallback if requested react key does not exist.
-            kind = "chill" if self._react_scaled.get(direction, {}).get("chill") else ""
+            kind = "chill" if self._local_react_scaled.get(direction, {}).get("chill") else ""
         if not kind:
             return
         self._react_kind = kind
@@ -668,9 +753,9 @@ class _DugongWindow(QtWidgets.QWidget):
         peer["turning"] = 1.0 if (1 if vx >= 0 else -1) != old_sign else 0.0
 
     def _next_peer_frame(self, source: str, direction: str) -> QtGui.QPixmap:
-        frames = self._frame_list("swim", direction)
+        frames = self._frame_list("swim", direction, role="peer")
         if not frames:
-            frames = self._frame_list("idle", direction)
+            frames = self._frame_list("idle", direction, role="peer")
         if not frames:
             return QtGui.QPixmap()
         idx = self._peer_anim_index.get(source, 0)

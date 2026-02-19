@@ -418,3 +418,33 @@
 - Validation:
   - python -m py_compile dugong/dugong_app/controller.py dugong/dugong_app/ui/shell_qt.py -> ok
   - (cd dugong) python -m pytest -> 31 passed
+
+## 2026-02-19 08:23:05
+- Scope: skin folder system by skin_id (remove hardcoded asset path coupling).
+- Files:
+  - dugong/dugong_app/config.py
+  - dugong/dugong_app/controller.py
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/ui/assets/README.md
+- Changes:
+  - Added config field skin_id from env DUGONG_SKIN_ID (default: default).
+  - DugongShell now receives skin_id and loads assets by folder id.
+  - Loader priority: assets/<skin_id>/ -> assets/default/ -> legacy assets/ flat root.
+  - Created ssets/default/ and copied current PNG set as initial default skin.
+  - Kept filename-based action mapping (same filenames across skins, no new hardcode).
+- Validation:
+  - python -m py_compile dugong/dugong_app/config.py dugong/dugong_app/controller.py dugong/dugong_app/ui/shell_qt.py -> ok
+  - (cd dugong) python -m pytest -> 31 passed
+
+## 2026-02-19 08:27:38
+- Scope: adjust skin root to assets/dugong_skin/<skin_id> and verify horse skin folder.
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/ui/assets/README.md
+- Changes:
+  - Skin loader root changed to ssets/dugong_skin/.
+  - Priority updated: dugong_skin/<id> -> dugong_skin/default -> assets/default -> assets/.
+  - Verified dugong_skin/horse folder resolves correctly.
+- Validation:
+  - python -m py_compile dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/config.py dugong/dugong_app/controller.py -> ok
+  - (cd dugong) python -m pytest -> 31 passed
