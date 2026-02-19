@@ -864,7 +864,11 @@ class _DugongWindow(QtWidgets.QWidget):
         if self._anim_mode in {"swim", "turn"}:
             self._step_towards_target(current)
 
+        now = time.monotonic()
         for peer in self._peer_entities.values():
+            # Keep peer stationary while its react clip is playing.
+            if float(peer.get("react_until", 0.0)) > now:
+                continue
             self._step_peer_towards_target(current, peer)
 
         self.update()
