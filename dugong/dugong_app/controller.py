@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from dugong_app.config import DugongConfig
 from dugong_app.core.event_bus import EventBus
+from dugong_app.core.events import DugongEvent
 from dugong_app.core.events import click_event, manual_ping_event, mode_change_event, state_tick_event
 from dugong_app.core.rules import apply_tick, switch_mode
 from dugong_app.interaction.transport_file import FileTransport
@@ -219,6 +220,8 @@ class DugongController:
         self._derived_last_rebuild_monotonic = now
 
     def _remote_bubble(self, event) -> str:
+        if event.event_type == "presence_hello":
+            return f"[{event.source}] joined aquarium"
         if event.event_type == "manual_ping":
             return f"[{event.source}] pinged you"
         if event.event_type == "mode_change":
@@ -232,6 +235,7 @@ class DugongController:
         priority = {
             "manual_ping": 4,
             "mode_change": 3,
+            "presence_hello": 3,
             "focus_session_end": 2,
             "focus_session_start": 2,
             "state_tick": 1,
@@ -248,8 +252,12 @@ class DugongController:
     def _signal_event_count(self, events) -> int:
         signal_types = {"manual_ping", "mode_change", "focus_session_start", "focus_session_end"}
         count = sum(1 for ev in events if ev.event_type in signal_types)
-        # No strong signal: keep at least one notification so user knows remote had activity.
-        return max(1 if events else 0, count)
+        if count > 0:
+            return count
+        # Presence/tick are background activity: no unread badge noise.
+        if events and any(ev.event_type not in {"presence_hello", "state_tick"} for ev in events):
+            return 1
+        return 0
 
     def _update_remote_presence(self, events) -> None:
         now = time.time()
@@ -268,6 +276,8 @@ class DugongController:
             if ev.event_type == "mode_change":
                 entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
             elif ev.event_type == "state_tick":
+                entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
+            elif ev.event_type == "presence_hello":
                 entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
 
     def _shared_entities(self) -> list[dict[str, str | float]]:
@@ -455,6 +465,14 @@ class DugongController:
         self.refresh(bubble="Syncing...")
 
     def run(self) -> None:
+        self.bus.emit(
+            DugongEvent(
+                event_type="presence_hello",
+                source=self.source_id,
+                payload={"mode": self.state.mode},
+            )
+        )
+        self._request_fast_sync()
         self.refresh(bubble=f"Dugong online [{self.source_id}]")
         self.on_sync_now()
         self.shell.schedule_every(self.tick_seconds, self.on_tick)

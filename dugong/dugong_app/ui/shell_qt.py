@@ -70,6 +70,7 @@ class _DugongWindow(QtWidgets.QWidget):
         self._local_source = source_id or "local"
         self._peer_entities: dict[str, dict[str, float | str]] = {}
         self._peer_anim_index: dict[str, int] = {}
+        self._peer_current_frame: dict[str, QtGui.QPixmap] = {}
 
         self.setWindowFlags(
             QtCore.Qt.FramelessWindowHint
@@ -434,6 +435,7 @@ class _DugongWindow(QtWidgets.QWidget):
         for src in stale:
             self._peer_entities.pop(src, None)
             self._peer_anim_index.pop(src, None)
+            self._peer_current_frame.pop(src, None)
 
     def _reset_dugong_position(self) -> None:
         frame = self._dugong_frame
@@ -491,9 +493,9 @@ class _DugongWindow(QtWidgets.QWidget):
         return frame
 
     def _update_frame(self, force: bool = False) -> None:
-        if self._vx > 0.06:
+        if self._vx > 0.35:
             direction = "right"
-        elif self._vx < -0.06:
+        elif self._vx < -0.35:
             direction = "left"
         else:
             direction = self._anim_direction
@@ -555,7 +557,11 @@ class _DugongWindow(QtWidgets.QWidget):
             self._vx = 0.06 if dx >= 0 else -0.06
 
         new_sign = 1 if self._vx >= 0 else -1
-        if new_sign != old_sign and self._anim_mode == "swim":
+        if (
+            new_sign != old_sign
+            and self._anim_mode == "swim"
+            and abs(self._vx) > 0.35
+        ):
             self._start_turn()
 
         self._x += self._vx
@@ -642,7 +648,14 @@ class _DugongWindow(QtWidgets.QWidget):
         peer["vx"] = vx
         peer["vy"] = vy
         peer["float_phase"] = phase
-        peer["facing"] = "right" if vx >= 0 else "left"
+        old_facing = str(peer.get("facing", "right"))
+        if vx > 0.28:
+            facing = "right"
+        elif vx < -0.28:
+            facing = "left"
+        else:
+            facing = old_facing
+        peer["facing"] = facing
         peer["turning"] = 1.0 if (1 if vx >= 0 else -1) != old_sign else 0.0
 
     def _next_peer_frame(self, source: str, direction: str) -> QtGui.QPixmap:
@@ -658,6 +671,13 @@ class _DugongWindow(QtWidgets.QWidget):
 
     def _tick_dugong(self) -> None:
         self._update_frame()
+        for source, peer in self._peer_entities.items():
+            direction = str(peer.get("facing", "right"))
+            if direction not in {"left", "right"}:
+                direction = "right"
+            pm = self._next_peer_frame(source, direction)
+            if not pm.isNull():
+                self._peer_current_frame[source] = pm
         self.update()
 
     def _tick_world(self) -> None:
@@ -721,8 +741,14 @@ class _DugongWindow(QtWidgets.QWidget):
                 painter.drawText(int(self._x), int(self._y) - 6, label)
 
         for source, peer in sorted(self._peer_entities.items(), key=lambda x: x[0]):
-            direction = str(peer.get("facing", "right"))
-            pm = self._next_peer_frame(source, direction if direction in {"left", "right"} else "right")
+            pm = self._peer_current_frame.get(source)
+            if pm is None or pm.isNull():
+                direction = str(peer.get("facing", "right"))
+                if direction not in {"left", "right"}:
+                    direction = "right"
+                pm = self._next_peer_frame(source, direction)
+                if not pm.isNull():
+                    self._peer_current_frame[source] = pm
             if pm.isNull():
                 continue
             x = int(float(peer.get("x", 0.0)))
