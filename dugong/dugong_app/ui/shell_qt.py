@@ -717,6 +717,46 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bg_offset = (self._bg_offset + self._bg_speed_px) % bg_w
         self.update()
 
+    def _draw_name_tag(
+        self,
+        painter: QtGui.QPainter,
+        x: int,
+        y: int,
+        source: str,
+        *,
+        is_local: bool,
+        anchor_w: int,
+        anchor_h: int,
+    ) -> None:
+        raw = (source or "").strip()
+        if not raw:
+            return
+        text = raw if len(raw) <= 14 else f"{raw[:13]}…"
+
+        font = QtGui.QFont("Segoe UI", 8 if not is_local else 9, QtGui.QFont.DemiBold)
+        painter.setFont(font)
+        metrics = QtGui.QFontMetrics(font)
+        pad_x = 8
+        pad_y = 3
+        text_w = metrics.horizontalAdvance(text)
+        text_h = metrics.height()
+        w = text_w + (pad_x * 2)
+        h = text_h + (pad_y * 2)
+        rx = x + max(0, (anchor_w - w) // 2)
+        # PNG has transparent top padding; anchor label closer to visible head area.
+        head_anchor_y = y + int(anchor_h * 0.10)
+        ry = head_anchor_y - h - 1
+
+        bg = QtGui.QColor(21, 42, 66, 190) if is_local else QtGui.QColor(26, 58, 92, 168)
+        border = QtGui.QColor(169, 225, 255, 180) if is_local else QtGui.QColor(150, 200, 235, 140)
+        fg = QtGui.QColor(245, 251, 255, 240)
+
+        painter.setPen(QtGui.QPen(border, 1))
+        painter.setBrush(QtGui.QBrush(bg))
+        painter.drawRoundedRect(rx, ry, w, h, 8, 8)
+        painter.setPen(QtGui.QPen(fg))
+        painter.drawText(rx + pad_x, ry + pad_y + metrics.ascent(), text)
+
     # -------- paint ----------
     def paintEvent(self, _e: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
@@ -734,11 +774,15 @@ class _DugongWindow(QtWidgets.QWidget):
 
         if not self._dugong_frame.isNull():
             painter.drawPixmap(int(self._x), int(self._y), self._dugong_frame)
-            label = self._local_source
-            if label:
-                painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 230)))
-                painter.setFont(QtGui.QFont("Segoe UI", 9, QtGui.QFont.Bold))
-                painter.drawText(int(self._x), int(self._y) - 6, label)
+            self._draw_name_tag(
+                painter,
+                int(self._x),
+                int(self._y),
+                self._local_source,
+                is_local=True,
+                anchor_w=self._dugong_frame.width(),
+                anchor_h=self._dugong_frame.height(),
+            )
 
         for source, peer in sorted(self._peer_entities.items(), key=lambda x: x[0]):
             pm = self._peer_current_frame.get(source)
@@ -754,9 +798,15 @@ class _DugongWindow(QtWidgets.QWidget):
             x = int(float(peer.get("x", 0.0)))
             y = int(float(peer.get("y", 0.0)))
             painter.drawPixmap(x, y, pm)
-            painter.setPen(QtGui.QPen(QtGui.QColor(210, 235, 255, 220)))
-            painter.setFont(QtGui.QFont("Segoe UI", 8, QtGui.QFont.DemiBold))
-            painter.drawText(x, y - 4, source)
+            self._draw_name_tag(
+                painter,
+                x,
+                y,
+                source,
+                is_local=False,
+                anchor_w=pm.width(),
+                anchor_h=pm.height(),
+            )
 
     # -------- hover bar ----------
     def enterEvent(self, _e: QtCore.QEvent) -> None:
