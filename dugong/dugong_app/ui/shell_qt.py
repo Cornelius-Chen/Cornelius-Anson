@@ -93,7 +93,7 @@ class _DugongWindow(QtWidgets.QWidget):
         self._frames_raw, self._react_raw = self._load_character_assets(assets_dir)
 
         self._anim_mode = "swim"  # swim | idle | turn | react
-        self._react_kind = "happy"  # happy | chill | dumb | shock
+        self._react_kind = "chill"  # study | chill | rest (with legacy aliases)
         self._react_until = 0.0
         self._anim_direction = "right"
         self._anim_index: dict[str, int] = {}
@@ -267,17 +267,25 @@ class _DugongWindow(QtWidgets.QWidget):
         if not swim:
             raise RuntimeError("No character frames found in ui/assets (Swim_loop* or seal_*).")
 
-        react_happy = self._load_by_prefix(assets_dir, "React_happy")
+        react_study = self._load_by_prefix(assets_dir, "React_study")
         react_chill = self._load_by_prefix(assets_dir, "React_chill")
+        react_rest = self._load_by_prefix(assets_dir, "React_rest")
+
+        # Legacy aliases (older naming)
+        react_happy = self._load_by_prefix(assets_dir, "React_happy")
         react_dumb = self._load_by_prefix(assets_dir, "React_dumb")
         react_shock = self._load_by_prefix(assets_dir, "React_shock")
 
         default_react = [idle[0] if idle else swim[0]]
         react = {
-            "happy": react_happy or default_react,
+            # Current mode-based keys
+            "study": react_study or react_shock or react_dumb or default_react,
             "chill": react_chill or default_react,
-            "dumb": react_dumb or default_react,
-            "shock": react_shock or react_dumb or default_react,
+            "rest": react_rest or react_happy or default_react,
+            # Legacy keys kept for compatibility
+            "happy": react_happy or react_rest or default_react,
+            "dumb": react_dumb or react_study or default_react,
+            "shock": react_shock or react_study or react_dumb or default_react,
         }
 
         frames = {
@@ -509,10 +517,11 @@ class _DugongWindow(QtWidgets.QWidget):
             self._dugong_frame = frame
 
     def _trigger_react(self, kind: str, ms: int = 1400) -> None:
-        if kind not in {"happy", "chill", "dumb", "shock"}:
-            return
         direction = "right" if self._vx >= 0 else "left"
         if not self._react_scaled.get(direction, {}).get(kind):
+            # Graceful fallback if requested react key does not exist.
+            kind = "chill" if self._react_scaled.get(direction, {}).get("chill") else ""
+        if not kind:
             return
         self._react_kind = kind
         self._anim_mode = "react"
@@ -857,7 +866,7 @@ class _DugongWindow(QtWidgets.QWidget):
             return
         self._last_mode = mode
 
-        if mode == "rest":
+        if mode == "rest" and self._anim_mode not in {"react", "turn"}:
             self._anim_mode = "idle"
             self._idle_ticks_left = max(self._idle_ticks_left, 30)
 
@@ -876,6 +885,13 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bubble_timer.start(ms)
 
     def _emit_mode(self, mode: str) -> None:
+        # Keep a short deterministic action clip when user clicks mode buttons.
+        if mode == "study":
+            self._trigger_react("study", ms=2000)
+        elif mode == "chill":
+            self._trigger_react("chill", ms=2000)
+        elif mode == "rest":
+            self._trigger_react("rest", ms=2000)
         self._on_mode_change(mode)
 
     def _emit_ping(self) -> None:

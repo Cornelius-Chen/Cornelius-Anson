@@ -11,10 +11,12 @@ Dugong UI will auto-load these PNG assets from this folder.
 ## Optional (used when present)
 - `Idle_loop1.png` ... `Idle_loopN.png`
 - `Turn1.png` ... `TurnN.png`
-- `React_happy.png` (or `React_happy1..N`)
+- `React_study.png` (or `React_study1..N`)
 - `React_chill.png` (or `React_chill1..N`)
-- `React_dumb.png` (or `React_dumb1..N`)
-- `React_shock.png` (or `React_shock1..N`)
+- `React_rest.png` (or `React_rest1..N`)
+
+Legacy names are still supported:
+- `React_happy*`, `React_dumb*`, `React_shock*`
 
 ## Direction Rule
 - Put only right-facing frames in assets.
