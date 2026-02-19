@@ -47,6 +47,10 @@ class DugongConfig:
     github_token: str
     github_branch: str
     github_folder: str
+    pomo_focus_minutes: int
+    pomo_break_minutes: int
+    reward_base_pearls: int
+    reward_valid_ratio_percent: int
 
     @classmethod
     def from_env(cls, repo_root: Path) -> "DugongConfig":
@@ -76,4 +80,8 @@ class DugongConfig:
             github_token=os.getenv("DUGONG_GITHUB_TOKEN", "").strip(),
             github_branch=os.getenv("DUGONG_GITHUB_BRANCH", "main").strip() or "main",
             github_folder=os.getenv("DUGONG_GITHUB_FOLDER", "dugong_sync").strip() or "dugong_sync",
+            pomo_focus_minutes=max(1, _env_int("DUGONG_POMO_FOCUS_MINUTES", 25)),
+            pomo_break_minutes=max(1, _env_int("DUGONG_POMO_BREAK_MINUTES", 5)),
+            reward_base_pearls=max(1, _env_int("DUGONG_REWARD_BASE_PEARLS", 10)),
+            reward_valid_ratio_percent=max(50, min(100, _env_int("DUGONG_REWARD_VALID_RATIO_PERCENT", 80))),
         )

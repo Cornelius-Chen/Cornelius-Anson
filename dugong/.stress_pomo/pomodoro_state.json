@@ -1,0 +1,10 @@
+{
+  "state": "FOCUS",
+  "phase": "focus",
+  "session_id": "035c2b4adecb40e3bf287a21fde66128",
+  "phase_duration_s": 18,
+  "remaining_s": 2,
+  "ends_at_wall": 1700000062.0,
+  "focus_minutes": 1,
+  "break_minutes": 1
+}

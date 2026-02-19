@@ -2,6 +2,8 @@ import json
 
 from dugong_app import debug
 from dugong_app.persistence.runtime_health_json import RuntimeHealthStorage
+from dugong_app.persistence.pomodoro_state_json import PomodoroStateStorage
+from dugong_app.persistence.reward_state_json import RewardStateStorage
 from dugong_app.persistence.sync_cursor_json import SyncCursorStorage
 
 
@@ -31,3 +33,26 @@ def test_debug_health_outputs_expected_keys(monkeypatch, capsys, tmp_path) -> No
     assert rc == 0
     assert payload["sync_state"] == "ok"
     assert "cursor_last_seen_event_id_by_source" in payload
+
+
+def test_debug_pomo_outputs_expected_keys(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.setenv("DUGONG_DATA_DIR", str(tmp_path))
+    PomodoroStateStorage(tmp_path / "pomodoro_state.json").save(
+        {
+            "state": "PAUSED",
+            "phase": "focus",
+            "remaining_s": 321,
+            "phase_duration_s": 1500,
+            "session_id": "abc123",
+            "ends_at_wall": 1700000000.0,
+        }
+    )
+    RewardStateStorage(tmp_path / "reward_state.json").save(
+        {"pearls": 42, "focus_streak": 2, "day_streak": 1, "granted_sessions": ["abc123"]}
+    )
+    rc = debug._cmd_pomo(None)
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert rc == 0
+    assert payload["pomodoro"]["state"] == "PAUSED"
+    assert payload["reward"]["pearls"] == 42

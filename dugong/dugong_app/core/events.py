@@ -39,3 +39,93 @@ def click_event(source: str = "dugong_app") -> DugongEvent:
 
 def manual_ping_event(message: str = "manual_ping", source: str = "dugong_app") -> DugongEvent:
     return DugongEvent(event_type="manual_ping", payload={"message": message}, source=source)
+
+
+def pomo_start_event(
+    phase: str,
+    duration_s: int,
+    session_id: str,
+    source: str = "dugong_app",
+) -> DugongEvent:
+    return DugongEvent(
+        event_type="pomo_start",
+        payload={"phase": phase, "duration_s": int(duration_s), "session_id": session_id},
+        source=source,
+    )
+
+
+def pomo_pause_event(phase: str, session_id: str, remaining_s: int, source: str = "dugong_app") -> DugongEvent:
+    return DugongEvent(
+        event_type="pomo_pause",
+        payload={"phase": phase, "session_id": session_id, "remaining_s": int(remaining_s)},
+        source=source,
+    )
+
+
+def pomo_resume_event(phase: str, session_id: str, remaining_s: int, source: str = "dugong_app") -> DugongEvent:
+    return DugongEvent(
+        event_type="pomo_resume",
+        payload={"phase": phase, "session_id": session_id, "remaining_s": int(remaining_s)},
+        source=source,
+    )
+
+
+def pomo_skip_event(
+    from_phase: str,
+    session_id: str,
+    completed_s: int,
+    duration_s: int,
+    source: str = "dugong_app",
+) -> DugongEvent:
+    return DugongEvent(
+        event_type="pomo_skip",
+        payload={
+            "from_phase": from_phase,
+            "session_id": session_id,
+            "completed_s": int(completed_s),
+            "duration_s": int(duration_s),
+        },
+        source=source,
+    )
+
+
+def pomo_complete_event(
+    phase: str,
+    session_id: str,
+    completed_s: int,
+    duration_s: int,
+    source: str = "dugong_app",
+) -> DugongEvent:
+    return DugongEvent(
+        event_type="pomo_complete",
+        payload={
+            "phase": phase,
+            "session_id": session_id,
+            "completed_s": int(completed_s),
+            "duration_s": int(duration_s),
+        },
+        source=source,
+    )
+
+
+def reward_grant_event(
+    pearls: int,
+    streak_bonus: int,
+    reason: str,
+    session_id: str,
+    focus_streak: int,
+    day_streak: int,
+    source: str = "dugong_app",
+) -> DugongEvent:
+    return DugongEvent(
+        event_type="reward_grant",
+        payload={
+            "pearls": int(pearls),
+            "streak_bonus": int(streak_bonus),
+            "reason": reason,
+            "session_id": session_id,
+            "focus_streak": int(focus_streak),
+            "day_streak": int(day_streak),
+        },
+        source=source,
+    )

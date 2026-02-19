@@ -448,3 +448,67 @@
 - Validation:
   - python -m py_compile dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/config.py dugong/dugong_app/controller.py -> ok
   - (cd dugong) python -m pytest -> 31 passed
+
+## 2026-02-19 10:11:48
+- Scope: Pomodoro V1 + reward system (manual-start anti-AFK) integrated end-to-end.
+- Files:
+  - dugong/dugong_app/services/pomodoro_service.py
+  - dugong/dugong_app/services/reward_service.py
+  - dugong/dugong_app/persistence/pomodoro_state_json.py
+  - dugong/dugong_app/persistence/reward_state_json.py
+  - dugong/dugong_app/core/events.py
+  - dugong/dugong_app/controller.py
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/config.py
+  - dugong/dugong_app/debug.py
+  - dugong/tests/test_pomodoro_reward.py
+  - dugong/README.md
+- Changes:
+  - Added Pomodoro state machine service: IDLE/FOCUS/BREAK/PAUSED.
+  - Enforced manual-only start for focus (no auto start on idle/restart).
+  - Implemented phase flow: FOCUS auto->BREAK, BREAK complete -> IDLE (manual next start).
+  - Added monotonic-time countdown model with paused restore behavior on restart.
+  - Added Pomodoro events: pomo_start/pause/resume/skip/complete.
+  - Added reward service with idempotent grant by session_id and validity ratio gate.
+  - Added reward_grant event and local pearl accumulation.
+  - Added persistent files: pomodoro_state.json and reward_state.json.
+  - Controller now wires Pomodoro tick/actions, sync signaling, reward grant emission.
+  - UI added minimal Pomodoro controls: pomo / pause / skip + status text line.
+  - README updated with Pomodoro env vars and V1 behavior rules.
+- Validation:
+  - python -m py_compile dugong/dugong_app/controller.py dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/services/pomodoro_service.py dugong/dugong_app/services/reward_service.py -> ok
+  - (cd dugong) python -m pytest -q -> 34 passed
+
+## 2026-02-19 10:20:42
+- Scope: Pomodoro V1 test hardening and debug guardrails.
+- Files:
+  - dugong/dugong_app/debug.py
+  - dugong/tests/test_pomodoro_reward.py
+  - dugong/tests/test_debug_cli.py
+  - dugong/README.md
+- Changes:
+  - Added python -m dugong_app.debug pomo command to inspect pomodoro/reward runtime snapshot.
+  - Added contract test: manual start only (IDLE -> FOCUS), no start while running/paused.
+  - Added sleep-like time jump test (monotonic time correctness under delayed tick).
+  - Added reward threshold boundary test (exact ratio grants).
+  - Added debug CLI test for pomo output schema.
+- Validation:
+  - python -m py_compile dugong/dugong_app/debug.py dugong/tests/test_pomodoro_reward.py dugong/tests/test_debug_cli.py -> ok
+  - (cd dugong) python -m pytest -q -> 38 passed
+
+## 2026-02-19 10:27:49
+- Scope: Added stress_pomo.py black-box harness + CI smoke gate.
+- Files:
+  - dugong/scripts/stress_pomo.py
+  - dugong/tests/test_stress_pomo.py
+  - dugong/README.md
+- Changes:
+  - New Pomodoro stress harness with ast and soak modes.
+  - Supports action driving without UI: start/pause/resume/skip + tick/time-jump + restart simulation.
+  - Adds replay jitter simulation for duplicate completion delivery.
+  - Outputs PASS/FAIL with quality gates and writes JSON log to <workdir>/logs/stress_pomo_*.json.
+  - Metrics include: completed total, effective rate, expected vs actual pearls delta, dedupe hits, invariant violations, recovery checks.
+  - Added pytest smoke test to run a short fast-mode gate in CI (	est_stress_pomo_fast_smoke).
+- Validation:
+  - python -m py_compile dugong/scripts/stress_pomo.py dugong/tests/test_stress_pomo.py -> ok
+  - (cd dugong) python -m pytest -q -> 39 passed

@@ -20,6 +20,9 @@ class DugongShell:
         on_click: Callable[[], None],
         on_manual_ping: Callable[[str], None] | None = None,
         on_sync_now: Callable[[], None] | None = None,
+        on_pomo_start: Callable[[], None] | None = None,
+        on_pomo_pause_resume: Callable[[], None] | None = None,
+        on_pomo_skip: Callable[[], None] | None = None,
         source_id: str = "local",
         skin_id: str = "default",
     ) -> None:
@@ -29,6 +32,9 @@ class DugongShell:
             on_click,
             on_manual_ping,
             on_sync_now,
+            on_pomo_start,
+            on_pomo_pause_resume,
+            on_pomo_skip,
             source_id=source_id,
             skin_id=skin_id,
         )
@@ -44,11 +50,17 @@ class DugongShell:
         self,
         sprite: str,
         state_text: str,
+        pomo_text: str | None = None,
+        pomo_state: str | None = None,
         bubble: str | None = None,
         entities: list[dict[str, str | float]] | None = None,
         local_source: str | None = None,
     ) -> None:
         self._win.set_state_text(state_text)
+        if pomo_text is not None:
+            self._win.set_pomo_text(pomo_text)
+        if pomo_state is not None:
+            self._win.set_pomo_state(pomo_state)
         self._win.apply_sprite_hint(sprite)
         if entities is not None:
             self._win.set_shared_entities(entities, local_source=local_source)
@@ -69,6 +81,9 @@ class _DugongWindow(QtWidgets.QWidget):
         on_click: Callable[[], None],
         on_manual_ping: Callable[[str], None] | None,
         on_sync_now: Callable[[], None] | None,
+        on_pomo_start: Callable[[], None] | None,
+        on_pomo_pause_resume: Callable[[], None] | None,
+        on_pomo_skip: Callable[[], None] | None,
         source_id: str = "local",
         skin_id: str = "default",
     ) -> None:
@@ -77,6 +92,9 @@ class _DugongWindow(QtWidgets.QWidget):
         self._on_click = on_click
         self._on_manual_ping = on_manual_ping
         self._on_sync_now = on_sync_now
+        self._on_pomo_start = on_pomo_start
+        self._on_pomo_pause_resume = on_pomo_pause_resume
+        self._on_pomo_skip = on_pomo_skip
         self._timers: list[QtCore.QTimer] = []
         self._local_source = source_id or "local"
         self._peer_entities: dict[str, dict[str, float | str]] = {}
@@ -115,6 +133,8 @@ class _DugongWindow(QtWidgets.QWidget):
         self._anim_index: dict[str, int] = {}
 
         self._last_mode = ""
+        self._pomo_state = "IDLE"
+        self._last_pomo_state = "IDLE"
 
         self._dugong_frame = QtGui.QPixmap()
         self._x = 0.0
@@ -127,6 +147,8 @@ class _DugongWindow(QtWidgets.QWidget):
         self._float_phase = 0.0
         self._idle_ticks_left = 0
         self._turn_ticks_left = 0
+        self._turn_target_direction = ""
+        self._turn_cooldown_until = 0.0
 
         self._dugong_anim_ms = 130
         self._world_tick_ms = 28
@@ -146,6 +168,10 @@ class _DugongWindow(QtWidgets.QWidget):
         self._state = QtWidgets.QLabel("state", self)
         self._state.setStyleSheet("color: rgba(255,255,255,210); font-size: 14px;")
         self._state.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+
+        self._pomo = QtWidgets.QLabel("POMO IDLE", self)
+        self._pomo.setStyleSheet("color: rgba(220,240,255,220); font-size: 13px; font-weight: 600;")
+        self._pomo.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
 
         self._bubble = QtWidgets.QLabel("", self)
         self._bubble.setWordWrap(True)
@@ -191,6 +217,9 @@ class _DugongWindow(QtWidgets.QWidget):
         lay.addWidget(mk_btn("study", "#1d3a57", lambda: self._emit_mode("study")))
         lay.addWidget(mk_btn("chill", "#1d3a57", lambda: self._emit_mode("chill")))
         lay.addWidget(mk_btn("rest", "#1d3a57", lambda: self._emit_mode("rest")))
+        lay.addWidget(mk_btn("pomo", "#7b3f00", self._emit_pomo_start))
+        lay.addWidget(mk_btn("pause", "#4d3d73", self._emit_pomo_pause_resume))
+        lay.addWidget(mk_btn("skip", "#874321", self._emit_pomo_skip))
         lay.addWidget(mk_btn("ping", "#275e44", self._emit_ping))
         lay.addWidget(mk_btn("sync", "#6b4f1f", self._emit_sync))
         lay.addWidget(mk_btn("quit", "#6a2c2c", self._emit_quit))
@@ -461,6 +490,7 @@ class _DugongWindow(QtWidgets.QWidget):
     def _layout_overlay(self) -> None:
         self._title.setGeometry(0, 8, self.width(), 26)
         self._state.setGeometry(0, self.height() - 28, self.width(), 20)
+        self._pomo.setGeometry(0, self.height() - 48, self.width(), 18)
 
     def _place_bar(self) -> None:
         self._bar.adjustSize()
@@ -489,6 +519,18 @@ class _DugongWindow(QtWidgets.QWidget):
         self._target_x = random.uniform(min_x, max_x)
         self._target_y = random.uniform(min_y, max_y)
 
+    def _maybe_turn_towards_target(self) -> bool:
+        if self._anim_mode != "swim":
+            return False
+        dx = self._target_x - self._x
+        if abs(dx) < 12.0:
+            return False
+        desired_direction = "right" if dx >= 0 else "left"
+        if desired_direction != self._anim_direction:
+            self._start_turn_to(desired_direction)
+            return True
+        return False
+
     def _new_peer(self, source: str, frame: QtGui.QPixmap) -> dict[str, float | str]:
         min_x, max_x, min_y, max_y = self._motion_bounds(frame)
         x = random.uniform(min_x, max_x)
@@ -511,6 +553,8 @@ class _DugongWindow(QtWidgets.QWidget):
             "react_kind": "chill",
             "react_until": 0.0,
             "skin_id": "default",
+            "last_event_id": "",
+            "last_event_type": "",
         }
 
     def set_shared_entities(
@@ -542,9 +586,26 @@ class _DugongWindow(QtWidgets.QWidget):
                     self._peer_set_skin(peer, peer_skin_id, target_h=int(self.height() * 0.36))
 
             prev_mode = str(peer.get("mode", "unknown"))
+            prev_event_id = str(peer.get("last_event_id", ""))
             peer["mode"] = str(entity.get("mode", peer.get("mode", "unknown")))
             peer["last_seen"] = float(entity.get("last_seen", time.time()))
-            if peer["mode"] != prev_mode and peer["mode"] in {"study", "chill", "rest"}:
+            peer["last_event_type"] = str(entity.get("last_event_type", peer.get("last_event_type", "")))
+            peer["last_event_id"] = str(entity.get("last_event_id", peer.get("last_event_id", "")))
+
+            # Trigger remote reaction on every new remote event id (not only mode changes).
+            if peer["last_event_id"] and peer["last_event_id"] != prev_event_id:
+                evt_type = str(peer.get("last_event_type", ""))
+                if evt_type == "mode_change":
+                    mode = str(peer.get("mode", "chill"))
+                    if mode not in {"study", "chill", "rest"}:
+                        mode = "chill"
+                    peer["react_kind"] = mode
+                    peer["react_until"] = time.monotonic() + 2.0
+                elif evt_type == "manual_ping":
+                    peer["react_kind"] = "chill"
+                    peer["react_until"] = time.monotonic() + 1.2
+            elif peer["mode"] != prev_mode and peer["mode"] in {"study", "chill", "rest"}:
+                # Fallback for compatibility if event id is unavailable.
                 peer["react_kind"] = str(peer["mode"])
                 peer["react_until"] = time.monotonic() + 2.0
 
@@ -643,18 +704,10 @@ class _DugongWindow(QtWidgets.QWidget):
         return frame
 
     def _update_frame(self, force: bool = False) -> None:
-        if self._vx > 0.35:
-            direction = "right"
-        elif self._vx < -0.35:
-            direction = "left"
-        else:
-            direction = self._anim_direction
-        self._anim_direction = direction
-
         if self._anim_mode == "react" and time.monotonic() >= self._react_until:
             self._anim_mode = "swim"
 
-        frame = self._next_frame(self._anim_mode, direction)
+        frame = self._next_frame(self._anim_mode, self._anim_direction)
         if not frame.isNull() or force:
             self._dugong_frame = frame
 
@@ -670,8 +723,19 @@ class _DugongWindow(QtWidgets.QWidget):
         self._react_until = time.monotonic() + max(0.3, ms / 1000.0)
 
     def _start_turn(self) -> None:
+        self._start_turn_to("left" if self._anim_direction == "right" else "right")
+
+    def _start_turn_to(self, target_direction: str) -> None:
+        if target_direction not in {"left", "right"}:
+            return
+        if target_direction == self._anim_direction:
+            return
         self._anim_mode = "turn"
-        self._turn_ticks_left = max(4, len(self._frame_list("turn", self._anim_direction)))
+        self._turn_target_direction = target_direction
+        self._turn_ticks_left = max(3, len(self._frame_list("turn", self._anim_direction)))
+        self._vx = 0.0
+        self._vy = 0.0
+        self._turn_cooldown_until = time.monotonic() + 0.25
 
     def _maybe_enter_idle(self) -> None:
         if self._anim_mode != "swim":
@@ -692,6 +756,8 @@ class _DugongWindow(QtWidgets.QWidget):
         dist = math.hypot(dx, dy)
         if dist < 10:
             self._pick_new_target(frame)
+            if self._maybe_turn_towards_target():
+                return
             if self._anim_mode == "swim" and random.random() < 0.28:
                 self._anim_mode = "idle"
                 self._idle_ticks_left = random.randint(10, 24)
@@ -699,21 +765,20 @@ class _DugongWindow(QtWidgets.QWidget):
                 self._vy = 0.0
             return
 
-        old_sign = 1 if self._vx >= 0 else -1
         speed = self._swim_speed * (0.75 if self._anim_mode == "turn" else 1.0)
-        self._vx = (dx / dist) * speed
-        self._vy = (dy / dist) * speed
+        next_vx = (dx / dist) * speed
+        next_vy = (dy / dist) * speed
 
-        if abs(self._vx) < 0.06:
-            self._vx = 0.06 if dx >= 0 else -0.06
+        if abs(next_vx) < 0.06:
+            next_vx = 0.06 if dx >= 0 else -0.06
 
-        new_sign = 1 if self._vx >= 0 else -1
-        if (
-            new_sign != old_sign
-            and self._anim_mode == "swim"
-            and abs(self._vx) > 0.35
-        ):
-            self._start_turn()
+        desired_direction = "right" if dx >= 0 else "left"
+        if self._anim_mode == "swim" and desired_direction != self._anim_direction:
+            self._start_turn_to(desired_direction)
+            return
+
+        self._vx = next_vx
+        self._vy = next_vy
 
         self._x += self._vx
         self._y += self._vy
@@ -852,6 +917,13 @@ class _DugongWindow(QtWidgets.QWidget):
         elif self._anim_mode == "turn":
             self._turn_ticks_left -= 1
             if self._turn_ticks_left <= 0:
+                if self._turn_target_direction in {"left", "right"}:
+                    self._anim_direction = self._turn_target_direction
+                    if self._anim_direction == "right" and self._vx < 0:
+                        self._vx = abs(self._vx)
+                    elif self._anim_direction == "left" and self._vx > 0:
+                        self._vx = -abs(self._vx)
+                self._turn_target_direction = ""
                 self._anim_mode = "swim"
         elif self._anim_mode == "idle":
             self._idle_ticks_left -= 1
@@ -861,7 +933,7 @@ class _DugongWindow(QtWidgets.QWidget):
         else:
             self._maybe_enter_idle()
 
-        if self._anim_mode in {"swim", "turn"}:
+        if self._anim_mode == "swim":
             self._step_towards_target(current)
 
         now = time.monotonic()
@@ -1026,6 +1098,26 @@ class _DugongWindow(QtWidgets.QWidget):
             self._anim_mode = "idle"
             self._idle_ticks_left = max(self._idle_ticks_left, 30)
 
+    def set_pomo_text(self, text: str) -> None:
+        self._pomo.setText(text)
+
+    def set_pomo_state(self, state: str) -> None:
+        s = (state or "").upper()
+        self._pomo_state = s
+        if s == self._last_pomo_state:
+            return
+        self._last_pomo_state = s
+        if s == "FOCUS":
+            if self._anim_mode not in {"react", "turn"}:
+                self._anim_mode = "swim"
+        elif s == "BREAK":
+            if self._anim_mode not in {"react", "turn"}:
+                self._trigger_react("chill", ms=1200)
+        elif s == "PAUSED":
+            if self._anim_mode not in {"react", "turn"}:
+                self._anim_mode = "idle"
+                self._idle_ticks_left = max(self._idle_ticks_left, 16)
+
     def apply_sprite_hint(self, sprite: str) -> None:
         _ = sprite
 
@@ -1053,6 +1145,18 @@ class _DugongWindow(QtWidgets.QWidget):
     def _emit_ping(self) -> None:
         if self._on_manual_ping is not None:
             self._on_manual_ping("checkin")
+
+    def _emit_pomo_start(self) -> None:
+        if self._on_pomo_start is not None:
+            self._on_pomo_start()
+
+    def _emit_pomo_pause_resume(self) -> None:
+        if self._on_pomo_pause_resume is not None:
+            self._on_pomo_pause_resume()
+
+    def _emit_pomo_skip(self) -> None:
+        if self._on_pomo_skip is not None:
+            self._on_pomo_skip()
 
     def _emit_sync(self) -> None:
         if self._on_sync_now is not None:

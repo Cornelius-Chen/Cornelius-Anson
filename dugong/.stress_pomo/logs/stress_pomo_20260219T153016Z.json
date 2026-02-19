@@ -1,0 +1,39 @@
+{
+  "status": "PASS",
+  "mode": "fast",
+  "seed": 42,
+  "runtime_simulated_seconds": 60,
+  "runtime_wall_seconds": 0.016,
+  "config": {
+    "focus_seconds": 18,
+    "break_seconds": 6,
+    "step_seconds": 1,
+    "restart_rate": 0.02,
+    "net_jitter": 0.1,
+    "valid_ratio": 0.8
+  },
+  "metrics": {
+    "pomo_completed_total": 3,
+    "pomo_effective_rate": 0.3333,
+    "pearls_delta_expected": 10,
+    "pearls_delta_actual": 10,
+    "dedupe_hits": {
+      "reward": 0,
+      "journal": 0
+    },
+    "state_machine_invariant_violations": 0,
+    "recovery_checks": {
+      "attempted": 0,
+      "passed": 0,
+      "failed": 0,
+      "auto_start_violations": 0
+    },
+    "skip_rate": 0.3333
+  },
+  "warnings": [
+    "effective_rate low (33.33%)"
+  ],
+  "fail_reasons": [],
+  "samples": [],
+  "workdir": "D:\\Creativity\\Cornelius-Anson\\dugong\\.stress_pomo"
+}

@@ -19,6 +19,7 @@ python -m dugong_app.debug last-events --n 20
 python -m dugong_app.debug summary --today
 python -m dugong_app.debug config
 python -m dugong_app.debug health
+python -m dugong_app.debug pomo
 python -m dugong_app.debug compact-journal --keep-days 7 --dry-run
 python -m dugong_app.debug compact-journal --keep-days 7
 ```
@@ -29,6 +30,12 @@ Stability harness:
 python scripts/stress_sync.py --clean --hours 24
 # quick smoke:
 python scripts/stress_sync.py --clean --hours 0.01
+
+# pomodoro black-box (fast)
+python scripts/stress_pomo.py --mode fast --minutes 3 --seed 42 --clean
+
+# pomodoro long soak
+python scripts/stress_pomo.py --mode soak --hours 2 --restart-rate 0.02 --net-jitter 0.1 --clean
 ```
 
 Sprite prep pipeline (AnimateDiff/Runway output -> PNG frames):
@@ -85,6 +92,30 @@ Optional env:
 - `DUGONG_JOURNAL_RETENTION_DAYS` (default `30`)
 - `DUGONG_DERIVED_REBUILD_SECONDS` (default `5`)
 - `DUGONG_JOURNAL_FSYNC=1` (enable fsync on journal append)
+- `DUGONG_POMO_FOCUS_MINUTES` (default `25`)
+- `DUGONG_POMO_BREAK_MINUTES` (default `5`)
+- `DUGONG_REWARD_BASE_PEARLS` (default `10`)
+- `DUGONG_REWARD_VALID_RATIO_PERCENT` (default `80`, reward threshold)
+
+## Pomodoro V1 (manual-start anti-AFK)
+
+- Rules:
+  - `IDLE -> FOCUS` only by manual click (`pomo` button).
+  - `FOCUS -> BREAK` auto switch.
+  - `BREAK -> next FOCUS` requires manual click (`pomo` button again).
+  - Restart/crash recovery restores Pomodoro as `PAUSED` (never auto-runs).
+- UI controls:
+  - `pomo`: start focus
+  - `pause`: pause/resume current Pomodoro phase
+  - `skip`: skip current phase
+- Reward:
+  - valid focus completion grants pearls (`base + streak bonus`)
+  - grant is idempotent by `session_id` (replay-safe)
+- New runtime files:
+  - `pomodoro_state.json`
+  - `reward_state.json`
+- Synced high-value events:
+  - `pomo_start`, `pomo_pause`, `pomo_resume`, `pomo_skip`, `pomo_complete`, `reward_grant`
 
 ## Demo script (2 machines)
 

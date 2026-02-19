@@ -9,7 +9,18 @@ from datetime import datetime, timezone
 from dugong_app.config import DugongConfig
 from dugong_app.core.event_bus import EventBus
 from dugong_app.core.events import DugongEvent
-from dugong_app.core.events import click_event, manual_ping_event, mode_change_event, state_tick_event
+from dugong_app.core.events import (
+    click_event,
+    manual_ping_event,
+    mode_change_event,
+    pomo_complete_event,
+    pomo_pause_event,
+    pomo_resume_event,
+    pomo_skip_event,
+    pomo_start_event,
+    reward_grant_event,
+    state_tick_event,
+)
 from dugong_app.core.rules import apply_tick, switch_mode
 from dugong_app.interaction.transport_file import FileTransport
 from dugong_app.interaction.transport_github import GithubTransport
@@ -19,8 +30,12 @@ from dugong_app.persistence.storage_json import JsonStorage
 from dugong_app.persistence.summary_json import SummaryStorage
 from dugong_app.persistence.sync_cursor_json import SyncCursorStorage
 from dugong_app.persistence.runtime_health_json import RuntimeHealthStorage
+from dugong_app.persistence.pomodoro_state_json import PomodoroStateStorage
+from dugong_app.persistence.reward_state_json import RewardStateStorage
 from dugong_app.services.daily_summary import summarize_events
 from dugong_app.services.focus_sessions import build_focus_sessions
+from dugong_app.services.pomodoro_service import POMO_BREAK, POMO_FOCUS, POMO_PAUSED, PomodoroService
+from dugong_app.services.reward_service import RewardService
 from dugong_app.services.sync_engine import SyncEngine
 from dugong_app.services.data_migration import migrate_legacy_repo_data
 from dugong_app.ui.renderer import Renderer
@@ -42,7 +57,10 @@ class DugongController:
         self.unread_remote_count = 0
         self.sync_status = "idle"
         self._state_dirty = False
+        self._pomo_dirty = False
+        self._reward_dirty = False
         self._remote_presence: dict[str, dict[str, str | float]] = {}
+        self._last_pomo_render_key: tuple[str, str, int] | None = None
 
         self.journal = EventJournal(
             config.data_dir / "event_journal.jsonl",
@@ -53,6 +71,20 @@ class DugongController:
         self.focus_sessions_storage = FocusSessionsStorage(config.data_dir / "focus_sessions.json")
         self.sync_cursor_storage = SyncCursorStorage(config.data_dir / "sync_cursor.json")
         self.health_storage = RuntimeHealthStorage(config.data_dir / "sync_health.json")
+        self.pomodoro_storage = PomodoroStateStorage(config.data_dir / "pomodoro_state.json")
+        self.reward_storage = RewardStateStorage(config.data_dir / "reward_state.json")
+
+        self.pomodoro = PomodoroService(
+            focus_minutes=config.pomo_focus_minutes,
+            break_minutes=config.pomo_break_minutes,
+        )
+        self.pomodoro.restore(self.pomodoro_storage.load())
+
+        self.reward = RewardService(
+            base_pearls=config.reward_base_pearls,
+            valid_ratio=(config.reward_valid_ratio_percent / 100.0),
+        )
+        self.reward.restore(self.reward_storage.load())
 
         transport, init_sync_status = self._create_transport()
         self.sync_status = init_sync_status
@@ -124,6 +156,9 @@ class DugongController:
                 on_click=self.on_click,
                 on_manual_ping=self.on_manual_ping,
                 on_sync_now=self.on_sync_now,
+                on_pomo_start=self.on_pomo_start,
+                on_pomo_pause_resume=self.on_pomo_pause_resume,
+                on_pomo_skip=self.on_pomo_skip,
                 source_id=self.source_id,
                 skin_id=self.config.skin_id,
             )
@@ -225,6 +260,15 @@ class DugongController:
             return f"[{event.source}] joined aquarium"
         if event.event_type == "manual_ping":
             return f"[{event.source}] pinged you"
+        if event.event_type == "pomo_start":
+            phase = str(event.payload.get("phase", "focus"))
+            return f"[{event.source}] started {phase}"
+        if event.event_type == "pomo_complete":
+            phase = str(event.payload.get("phase", "focus"))
+            return f"[{event.source}] completed {phase}"
+        if event.event_type == "reward_grant":
+            pearls = int(event.payload.get("pearls", 0))
+            return f"[{event.source}] +{pearls} pearls"
         if event.event_type == "mode_change":
             mode = event.payload.get("mode", "unknown")
             return f"[{event.source}] -> {mode}"
@@ -234,7 +278,10 @@ class DugongController:
 
     def _pick_representative_remote_event(self, events):
         priority = {
+            "reward_grant": 5,
+            "pomo_complete": 5,
             "manual_ping": 4,
+            "pomo_start": 4,
             "mode_change": 3,
             "presence_hello": 3,
             "focus_session_end": 2,
@@ -251,7 +298,15 @@ class DugongController:
         return best
 
     def _signal_event_count(self, events) -> int:
-        signal_types = {"manual_ping", "mode_change", "focus_session_start", "focus_session_end"}
+        signal_types = {
+            "manual_ping",
+            "mode_change",
+            "focus_session_start",
+            "focus_session_end",
+            "pomo_start",
+            "pomo_complete",
+            "reward_grant",
+        }
         count = sum(1 for ev in events if ev.event_type in signal_types)
         if count > 0:
             return count
@@ -269,10 +324,17 @@ class DugongController:
 
             entry = self._remote_presence.setdefault(
                 source,
-                {"source": source, "mode": "unknown", "last_seen": 0.0, "event_type": ""},
+                {
+                    "source": source,
+                    "mode": "unknown",
+                    "last_seen": 0.0,
+                    "event_type": "",
+                    "event_id": "",
+                },
             )
             entry["last_seen"] = now
             entry["event_type"] = ev.event_type
+            entry["event_id"] = str(getattr(ev, "event_id", "") or "")
 
             if ev.event_type == "mode_change":
                 entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
@@ -280,6 +342,12 @@ class DugongController:
                 entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
             elif ev.event_type == "presence_hello":
                 entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
+            elif ev.event_type in {"pomo_start", "pomo_resume"}:
+                phase = str(ev.payload.get("phase", "")).lower()
+                if phase == "focus":
+                    entry["mode"] = "study"
+                elif phase == "break":
+                    entry["mode"] = "chill"
 
     def _shared_entities(self) -> list[dict[str, str | float]]:
         now = time.time()
@@ -289,6 +357,8 @@ class DugongController:
                 "source": src,
                 "mode": str(info.get("mode", "unknown")),
                 "last_seen": float(info.get("last_seen", 0.0)),
+                "last_event_type": str(info.get("event_type", "")),
+                "last_event_id": str(info.get("event_id", "")),
                 "is_local": 0.0,
             }
             for src, info in self._remote_presence.items()
@@ -391,7 +461,19 @@ class DugongController:
             self.refresh(bubble=bubble)
 
     def _state_text(self) -> str:
-        return f"E:{self.state.energy} M:{self.state.mood} F:{self.state.focus} [{self.state.mode}]"
+        return f"E:{self.state.energy} M:{self.state.mood} F:{self.state.focus} [{self.state.mode}] P:{self.reward.pearls}"
+
+    def _pomo_text(self) -> str:
+        view = self.pomodoro.view()
+        mm = view.remaining_s // 60
+        ss = view.remaining_s % 60
+        if view.state == "IDLE":
+            return f"POMO IDLE  ({view.focus_minutes}m/{view.break_minutes}m)"
+        if view.state == "PAUSED":
+            phase = view.phase.upper() if view.phase else "READY"
+            return f"POMO {phase} PAUSED  {mm:02d}:{ss:02d}"
+        phase = view.phase.upper() if view.phase else view.state
+        return f"POMO {phase}  {mm:02d}:{ss:02d}"
 
     def refresh(self, bubble: str | None = None) -> None:
         sprite = self.renderer.sprite_for(self.state)
@@ -399,6 +481,8 @@ class DugongController:
             self.shell.update_view(
                 sprite=sprite,
                 state_text=self._state_text(),
+                pomo_text=self._pomo_text(),
+                pomo_state=self.pomodoro.view().state,
                 bubble=bubble,
                 entities=self._shared_entities(),
                 local_source=self.source_id,
@@ -408,6 +492,28 @@ class DugongController:
 
     def _on_any_event(self, event) -> None:
         self._state_dirty = True
+        if event.event_type.startswith("pomo_"):
+            self._pomo_dirty = True
+        if event.event_type == "pomo_complete" and str(event.source) == self.source_id:
+            grant = self.reward.grant_for_completion(event.payload)
+            if grant is not None:
+                self._reward_dirty = True
+                self.bus.emit(
+                    reward_grant_event(
+                        pearls=grant.pearls,
+                        streak_bonus=grant.streak_bonus,
+                        reason=grant.reason,
+                        session_id=grant.session_id,
+                        focus_streak=grant.focus_streak,
+                        day_streak=grant.day_streak,
+                        source=self.source_id,
+                    )
+                )
+        elif event.event_type == "pomo_skip" and str(event.source) == self.source_id:
+            self.reward.on_skip(str(event.payload.get("from_phase", "")))
+            self._reward_dirty = True
+        elif event.event_type == "reward_grant":
+            self._reward_dirty = True
         self._jobs.put({"kind": "local_event", "event": event})
 
     def _flush_state_if_dirty(self) -> None:
@@ -415,6 +521,18 @@ class DugongController:
             return
         self.storage.save(self.state)
         self._state_dirty = False
+
+    def _flush_pomodoro_if_dirty(self) -> None:
+        if not self._pomo_dirty:
+            return
+        self.pomodoro_storage.save(self.pomodoro.snapshot())
+        self._pomo_dirty = False
+
+    def _flush_reward_if_dirty(self) -> None:
+        if not self._reward_dirty:
+            return
+        self.reward_storage.save(self.reward.snapshot())
+        self._reward_dirty = False
 
     def on_mode_change(self, mode: str) -> None:
         self.state = switch_mode(self.state, mode)
@@ -432,6 +550,121 @@ class DugongController:
         self.bus.emit(manual_ping_event(message, source=self.source_id))
         self._request_fast_sync()
         self.refresh(bubble="Signal sent")
+
+    def _emit_pomo_event(self, event_type: str, payload: dict) -> None:
+        if event_type == "pomo_start":
+            self.bus.emit(
+                pomo_start_event(
+                    phase=str(payload.get("phase", "")),
+                    duration_s=int(payload.get("duration_s", 0)),
+                    session_id=str(payload.get("session_id", "")),
+                    source=self.source_id,
+                )
+            )
+            return
+        if event_type == "pomo_pause":
+            self.bus.emit(
+                pomo_pause_event(
+                    phase=str(payload.get("phase", "")),
+                    session_id=str(payload.get("session_id", "")),
+                    remaining_s=int(payload.get("remaining_s", 0)),
+                    source=self.source_id,
+                )
+            )
+            return
+        if event_type == "pomo_resume":
+            self.bus.emit(
+                pomo_resume_event(
+                    phase=str(payload.get("phase", "")),
+                    session_id=str(payload.get("session_id", "")),
+                    remaining_s=int(payload.get("remaining_s", 0)),
+                    source=self.source_id,
+                )
+            )
+            return
+        if event_type == "pomo_skip":
+            self.bus.emit(
+                pomo_skip_event(
+                    from_phase=str(payload.get("from_phase", "")),
+                    session_id=str(payload.get("session_id", "")),
+                    completed_s=int(payload.get("completed_s", 0)),
+                    duration_s=int(payload.get("duration_s", 0)),
+                    source=self.source_id,
+                )
+            )
+            return
+        if event_type == "pomo_complete":
+            self.bus.emit(
+                pomo_complete_event(
+                    phase=str(payload.get("phase", "")),
+                    session_id=str(payload.get("session_id", "")),
+                    completed_s=int(payload.get("completed_s", 0)),
+                    duration_s=int(payload.get("duration_s", 0)),
+                    source=self.source_id,
+                )
+            )
+            return
+
+    def on_pomo_start(self) -> None:
+        payload = self.pomodoro.start_focus()
+        if not payload:
+            self.refresh(bubble="Pomodoro: start unavailable")
+            return
+        self._pomo_dirty = True
+        self._emit_pomo_event("pomo_start", payload)
+        self._request_fast_sync()
+        self.refresh(bubble="Focus started")
+
+    def on_pomo_pause_resume(self) -> None:
+        view = self.pomodoro.view()
+        if view.state in {POMO_FOCUS, POMO_BREAK}:
+            payload = self.pomodoro.pause()
+            if payload:
+                self._pomo_dirty = True
+                self._emit_pomo_event("pomo_pause", payload)
+                self.refresh(bubble="Pomodoro paused")
+            return
+        if view.state == POMO_PAUSED:
+            payload = self.pomodoro.resume()
+            if payload:
+                self._pomo_dirty = True
+                self._emit_pomo_event("pomo_resume", payload)
+                self.refresh(bubble="Pomodoro resumed")
+            return
+        self.refresh(bubble="Pomodoro is idle")
+
+    def on_pomo_skip(self) -> None:
+        events = self.pomodoro.skip()
+        if not events:
+            self.refresh(bubble="Pomodoro skip unavailable")
+            return
+        self._pomo_dirty = True
+        for event_type, payload in events:
+            self._emit_pomo_event(event_type, payload)
+        self._request_fast_sync()
+        self.refresh(bubble="Pomodoro skipped")
+
+    def on_pomo_tick(self) -> None:
+        events = self.pomodoro.tick()
+        if events:
+            self._pomo_dirty = True
+            for event_type, payload in events:
+                self._emit_pomo_event(event_type, payload)
+            self._request_fast_sync()
+            phase = str(events[0][1].get("phase", ""))
+            if phase == "focus":
+                self.refresh(bubble="Focus complete. Break started.")
+            elif phase == "break":
+                self.refresh(bubble="Break complete. Start next focus manually.")
+            else:
+                self.refresh()
+            return
+        view = self.pomodoro.view()
+        key = (view.state, view.phase, view.remaining_s)
+        if key == self._last_pomo_render_key:
+            return
+        self._last_pomo_render_key = key
+        self.refresh()
 
     def on_tick(self) -> None:
         self.state = apply_tick(self.state, tick_seconds=self.tick_seconds)
@@ -477,9 +710,12 @@ class DugongController:
         self.refresh(bubble=f"Dugong online [{self.source_id}]")
         self.on_sync_now()
         self.shell.schedule_every(self.tick_seconds, self.on_tick)
+        self.shell.schedule_every(1, self.on_pomo_tick)
         self.shell.schedule_every(self.sync_interval_seconds, self.on_sync_tick)
         self.shell.schedule_every(1, self._drain_worker_results)
         self.shell.schedule_every(1, self._flush_state_if_dirty)
+        self.shell.schedule_every(1, self._flush_pomodoro_if_dirty)
+        self.shell.schedule_every(1, self._flush_reward_if_dirty)
         self.shell.schedule_every(1, self._flush_health_if_dirty)
         self.shell.run()
 

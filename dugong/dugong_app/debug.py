@@ -7,6 +7,8 @@ from pathlib import Path
 
 from dugong_app.config import DugongConfig
 from dugong_app.persistence.event_journal import EventJournal
+from dugong_app.persistence.pomodoro_state_json import PomodoroStateStorage
+from dugong_app.persistence.reward_state_json import RewardStateStorage
 from dugong_app.persistence.runtime_health_json import RuntimeHealthStorage
 from dugong_app.persistence.sync_cursor_json import SyncCursorStorage
 from dugong_app.services.daily_summary import summarize_events
@@ -87,6 +89,10 @@ def _cmd_config(_args: argparse.Namespace) -> int:
         "github_branch": cfg.github_branch,
         "github_folder": cfg.github_folder,
         "github_token": "***" if cfg.github_token else "",
+        "pomo_focus_minutes": cfg.pomo_focus_minutes,
+        "pomo_break_minutes": cfg.pomo_break_minutes,
+        "reward_base_pearls": cfg.reward_base_pearls,
+        "reward_valid_ratio_percent": cfg.reward_valid_ratio_percent,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
@@ -118,6 +124,36 @@ def _cmd_health(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_pomo(_args: argparse.Namespace) -> int:
+    data_root = _default_data_root()
+    pomo = PomodoroStateStorage(data_root / "pomodoro_state.json").load()
+    reward = RewardStateStorage(data_root / "reward_state.json").load()
+    payload = {
+        "pomodoro": {
+            "state": pomo.get("state", "IDLE"),
+            "phase": pomo.get("phase", ""),
+            "remaining_s": int(pomo.get("remaining_s", 0)),
+            "phase_duration_s": int(pomo.get("phase_duration_s", 0)),
+            "session_id": pomo.get("session_id", ""),
+            "ends_at_wall": pomo.get("ends_at_wall", 0),
+            "focus_minutes": int(pomo.get("focus_minutes", 25)),
+            "break_minutes": int(pomo.get("break_minutes", 5),
+            ),
+        },
+        "reward": {
+            "pearls": int(reward.get("pearls", 0)),
+            "focus_streak": int(reward.get("focus_streak", 0)),
+            "day_streak": int(reward.get("day_streak", 0)),
+            "last_focus_day": reward.get("last_focus_day", ""),
+            "granted_sessions_count": len(reward.get("granted_sessions", []))
+            if isinstance(reward.get("granted_sessions", []), list)
+            else 0,
+        },
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="python -m dugong_app.debug")
     subparsers = parser.add_subparsers(dest="cmd", required=True)
@@ -140,6 +176,9 @@ def main() -> int:
 
     p_health = subparsers.add_parser("health", help="Show backend health snapshot")
     p_health.set_defaults(func=_cmd_health)
+
+    p_pomo = subparsers.add_parser("pomo", help="Show pomodoro and reward snapshot")
+    p_pomo.set_defaults(func=_cmd_pomo)
 
     args = parser.parse_args()
     return int(args.func(args))
