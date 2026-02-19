@@ -229,7 +229,8 @@ class _DugongWindow(QtWidgets.QWidget):
         default_skin = "default"
         try:
             if mapping_file.exists():
-                data = json.loads(mapping_file.read_text(encoding="utf-8"))
+                # Use utf-8-sig to tolerate BOM produced by some editors/PowerShell.
+                data = json.loads(mapping_file.read_text(encoding="utf-8-sig"))
                 if isinstance(data, dict):
                     default_skin = str(data.get("default_skin", default_skin)).strip() or default_skin
                     source_to_skin = data.get("source_to_skin", {})
