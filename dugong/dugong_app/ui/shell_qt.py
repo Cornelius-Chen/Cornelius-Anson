@@ -137,8 +137,6 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bg_scaled: QtGui.QPixmap | None = None
         self._local_frames_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
         self._local_react_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
-        self._peer_frames_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
-        self._peer_react_scaled: dict[str, dict[str, list[QtGui.QPixmap]]] = {"right": {}, "left": {}}
         self._rebuild_scaled_pixmaps()
 
         self._title = QtWidgets.QLabel("Dugong", self)
@@ -407,6 +405,42 @@ class _DugongWindow(QtWidgets.QWidget):
         transform = QtGui.QTransform().scale(-1.0, 1.0)
         return [pm.transformed(transform) for pm in frames]
 
+    def _build_scaled_bundle(
+        self,
+        frames_raw: dict[str, list[QtGui.QPixmap]],
+        react_raw: dict[str, list[QtGui.QPixmap]],
+        target_h: int,
+    ) -> tuple[dict[str, dict[str, list[QtGui.QPixmap]]], dict[str, dict[str, list[QtGui.QPixmap]]]]:
+        right_frames = {
+            key: self._scale_and_pad(frames, target_h)
+            for key, frames in frames_raw.items()
+        }
+        right_reacts = {
+            key: self._scale_and_pad(frames, target_h)
+            for key, frames in react_raw.items()
+        }
+        frames_scaled = {
+            "right": right_frames,
+            "left": {key: self._mirror_frames(frames) for key, frames in right_frames.items()},
+        }
+        reacts_scaled = {
+            "right": right_reacts,
+            "left": {key: self._mirror_frames(frames) for key, frames in right_reacts.items()},
+        }
+        return frames_scaled, reacts_scaled
+
+    def _peer_set_skin(self, peer: dict[str, float | str], skin_id: str, target_h: int) -> None:
+        skin_assets_dir = self._resolve_skin_assets_dir(self._skin_root, skin_id)
+        peer_frames_raw, peer_react_raw = self._load_character_assets(skin_assets_dir)
+        frames_scaled, reacts_scaled = self._build_scaled_bundle(peer_frames_raw, peer_react_raw, target_h)
+        peer["skin_id"] = skin_id
+        peer["frames_scaled"] = frames_scaled
+        peer["react_scaled"] = reacts_scaled
+        if not str(peer.get("react_kind", "")).strip():
+            peer["react_kind"] = "chill"
+        if "react_until" not in peer:
+            peer["react_until"] = 0.0
+
     def _rebuild_scaled_pixmaps(self) -> None:
         h = self.height()
 
@@ -414,36 +448,14 @@ class _DugongWindow(QtWidgets.QWidget):
 
         target_h = int(h * 0.36)
 
-        def build_scaled(
-            frames_raw: dict[str, list[QtGui.QPixmap]],
-            react_raw: dict[str, list[QtGui.QPixmap]],
-        ) -> tuple[dict[str, dict[str, list[QtGui.QPixmap]]], dict[str, dict[str, list[QtGui.QPixmap]]]]:
-            right_frames = {
-                key: self._scale_and_pad(frames, target_h)
-                for key, frames in frames_raw.items()
-            }
-            right_reacts = {
-                key: self._scale_and_pad(frames, target_h)
-                for key, frames in react_raw.items()
-            }
-            frames_scaled = {
-                "right": right_frames,
-                "left": {key: self._mirror_frames(frames) for key, frames in right_frames.items()},
-            }
-            reacts_scaled = {
-                "right": right_reacts,
-                "left": {key: self._mirror_frames(frames) for key, frames in right_reacts.items()},
-            }
-            return frames_scaled, reacts_scaled
-
-        self._local_frames_scaled, self._local_react_scaled = build_scaled(
+        self._local_frames_scaled, self._local_react_scaled = self._build_scaled_bundle(
             self._local_frames_raw,
             self._local_react_raw,
+            target_h,
         )
-        self._peer_frames_scaled, self._peer_react_scaled = build_scaled(
-            self._peer_frames_raw,
-            self._peer_react_raw,
-        )
+        for peer in self._peer_entities.values():
+            skin_id = str(peer.get("skin_id", "default")) or "default"
+            self._peer_set_skin(peer, skin_id, target_h)
 
     def _layout_overlay(self) -> None:
         self._title.setGeometry(0, 8, self.width(), 26)
@@ -495,6 +507,9 @@ class _DugongWindow(QtWidgets.QWidget):
             "mode": "unknown",
             "last_seen": time.time(),
             "float_phase": random.uniform(0.0, 6.28),
+            "react_kind": "chill",
+            "react_until": 0.0,
+            "skin_id": "default",
         }
 
     def set_shared_entities(
@@ -518,9 +533,19 @@ class _DugongWindow(QtWidgets.QWidget):
             if peer is None:
                 peer = self._new_peer(source, frame)
                 self._peer_entities[source] = peer
+                peer_skin_id = self._resolve_skin_id(source, "auto")
+                self._peer_set_skin(peer, peer_skin_id, target_h=int(self.height() * 0.36))
+            else:
+                peer_skin_id = self._resolve_skin_id(source, "auto")
+                if str(peer.get("skin_id", "default")) != peer_skin_id:
+                    self._peer_set_skin(peer, peer_skin_id, target_h=int(self.height() * 0.36))
 
+            prev_mode = str(peer.get("mode", "unknown"))
             peer["mode"] = str(entity.get("mode", peer.get("mode", "unknown")))
             peer["last_seen"] = float(entity.get("last_seen", time.time()))
+            if peer["mode"] != prev_mode and peer["mode"] in {"study", "chill", "rest"}:
+                peer["react_kind"] = str(peer["mode"])
+                peer["react_until"] = time.monotonic() + 2.0
 
         stale = [src for src in self._peer_entities if src not in current_sources]
         for src in stale:
@@ -558,26 +583,57 @@ class _DugongWindow(QtWidgets.QWidget):
         super().showEvent(e)
 
     # -------- animation state ----------
-    def _frame_list(self, anim: str, direction: str, role: str = "local") -> list[QtGui.QPixmap]:
-        frames_scaled = self._local_frames_scaled if role == "local" else self._peer_frames_scaled
-        react_scaled = self._local_react_scaled if role == "local" else self._peer_react_scaled
-        if anim == "react":
-            return react_scaled.get(direction, {}).get(self._react_kind, [])
-        return frames_scaled.get(direction, {}).get(anim, [])
+    def _frame_list(
+        self,
+        anim: str,
+        direction: str,
+        role: str = "local",
+        react_kind: str | None = None,
+        peer: dict[str, float | str] | None = None,
+    ) -> list[QtGui.QPixmap]:
+        if role == "local":
+            frames_scaled = self._local_frames_scaled
+            react_scaled = self._local_react_scaled
+            rk = react_kind or self._react_kind
+        else:
+            if peer is None:
+                return []
+            frames_scaled = peer.get("frames_scaled", {})
+            react_scaled = peer.get("react_scaled", {})
+            if not isinstance(frames_scaled, dict) or not isinstance(react_scaled, dict):
+                return []
+            rk = react_kind or str(peer.get("react_kind", "chill"))
 
-    def _safe_anim(self, anim: str, direction: str, role: str = "local") -> str:
-        if self._frame_list(anim, direction, role=role):
+        if anim == "react":
+            by_dir = react_scaled.get(direction, {})
+            if isinstance(by_dir, dict):
+                return by_dir.get(rk, [])
+            return []
+        by_dir = frames_scaled.get(direction, {})
+        if isinstance(by_dir, dict):
+            return by_dir.get(anim, [])
+        return []
+
+    def _safe_anim(
+        self,
+        anim: str,
+        direction: str,
+        role: str = "local",
+        react_kind: str | None = None,
+        peer: dict[str, float | str] | None = None,
+    ) -> str:
+        if self._frame_list(anim, direction, role=role, react_kind=react_kind, peer=peer):
             return anim
-        if self._frame_list("swim", direction, role=role):
+        if self._frame_list("swim", direction, role=role, react_kind=react_kind, peer=peer):
             return "swim"
-        if self._frame_list("idle", direction, role=role):
+        if self._frame_list("idle", direction, role=role, react_kind=react_kind, peer=peer):
             return "idle"
         return "turn"
 
     def _next_frame(self, anim: str, direction: str) -> QtGui.QPixmap:
-        safe_anim = self._safe_anim(anim, direction, role="local")
+        safe_anim = self._safe_anim(anim, direction, role="local", react_kind=self._react_kind)
         key = f"{direction}:{safe_anim}:{self._react_kind if safe_anim == 'react' else '-'}"
-        frames = self._frame_list(safe_anim, direction, role="local")
+        frames = self._frame_list(safe_anim, direction, role="local", react_kind=self._react_kind)
         if not frames:
             return QtGui.QPixmap()
         idx = self._anim_index.get(key, 0)
@@ -752,15 +808,25 @@ class _DugongWindow(QtWidgets.QWidget):
         peer["facing"] = facing
         peer["turning"] = 1.0 if (1 if vx >= 0 else -1) != old_sign else 0.0
 
-    def _next_peer_frame(self, source: str, direction: str) -> QtGui.QPixmap:
-        frames = self._frame_list("swim", direction, role="peer")
+    def _next_peer_frame(self, source: str, direction: str, peer: dict[str, float | str]) -> QtGui.QPixmap:
+        now = time.monotonic()
+        react_until = float(peer.get("react_until", 0.0))
+        react_kind = str(peer.get("react_kind", "chill"))
+        if react_until > now:
+            anim = "react"
+        else:
+            anim = "swim"
+
+        safe_anim = self._safe_anim(anim, direction, role="peer", react_kind=react_kind, peer=peer)
+        frames = self._frame_list(safe_anim, direction, role="peer", react_kind=react_kind, peer=peer)
         if not frames:
-            frames = self._frame_list("idle", direction, role="peer")
+            frames = self._frame_list("idle", direction, role="peer", react_kind=react_kind, peer=peer)
         if not frames:
             return QtGui.QPixmap()
-        idx = self._peer_anim_index.get(source, 0)
+        idx_key = f"{source}:{safe_anim}:{react_kind if safe_anim == 'react' else '-'}:{direction}"
+        idx = self._peer_anim_index.get(idx_key, 0)
         frame = frames[idx % len(frames)]
-        self._peer_anim_index[source] = (idx + 1) % len(frames)
+        self._peer_anim_index[idx_key] = (idx + 1) % len(frames)
         return frame
 
     def _tick_dugong(self) -> None:
@@ -769,7 +835,7 @@ class _DugongWindow(QtWidgets.QWidget):
             direction = str(peer.get("facing", "right"))
             if direction not in {"left", "right"}:
                 direction = "right"
-            pm = self._next_peer_frame(source, direction)
+            pm = self._next_peer_frame(source, direction, peer)
             if not pm.isNull():
                 self._peer_current_frame[source] = pm
         self.update()
@@ -884,7 +950,7 @@ class _DugongWindow(QtWidgets.QWidget):
                 direction = str(peer.get("facing", "right"))
                 if direction not in {"left", "right"}:
                     direction = "right"
-                pm = self._next_peer_frame(source, direction)
+                pm = self._next_peer_frame(source, direction, peer)
                 if not pm.isNull():
                     self._peer_current_frame[source] = pm
             if pm.isNull():
