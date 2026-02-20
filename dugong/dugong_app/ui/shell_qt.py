@@ -746,6 +746,7 @@ class _DugongWindow(QtWidgets.QWidget):
     def _toggle_size_mode(self) -> None:
         self._compact_mode = not self._compact_mode
         self._size_mode_top.setText("大" if self._compact_mode else "小")
+        shop_was_open = self._shop_dialog is not None and self._shop_dialog.isVisible()
         screen = QtGui.QGuiApplication.primaryScreen()
         old_geo = self.geometry()
         self._apply_screen_width()
@@ -768,6 +769,13 @@ class _DugongWindow(QtWidgets.QWidget):
         self._reset_dugong_position()
         self._update_frame(force=True)
         self.update()
+        if shop_was_open:
+            try:
+                self._shop_dialog.close()
+            except Exception:
+                pass
+            self._shop_dialog = None
+            self._open_shop_dialog()
 
     def _update_pearl_text(self) -> None:
         if self._compact_mode:
@@ -2115,13 +2123,17 @@ class _DugongWindow(QtWidgets.QWidget):
             menu.exec(QtGui.QCursor.pos())
             return
 
+        # Mode-based default scale:
+        # full mode opens at "max" size; compact mode opens smaller.
+        self._shop_scale = 1.0 if not self._compact_mode else 0.70
+
         # Use different sizing rules for compact/full modes.
         if self._compact_mode:
-            target_h = min(430, max(290, int(self.height() * 1.22)))
-            max_w = max(430, int(self.width() * 1.08))
+            target_h = min(360, max(240, int(self.height() * 1.00)))
+            max_w = max(360, int(self.width() * 0.90))
         else:
-            target_h = min(520, max(320, int(self.height() * 1.45)))
-            max_w = max(640, int(self.width() * 0.72))
+            target_h = min(620, max(380, int(self.height() * 1.72)))
+            max_w = max(760, int(self.width() * 0.86))
         shop_scale = self._shop_scale
         target_h = max(180, int(target_h * shop_scale))
         max_w = max(260, int(max_w * shop_scale))
