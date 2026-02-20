@@ -2057,14 +2057,12 @@ class _DugongWindow(QtWidgets.QWidget):
         if dlg is None or not dlg.isVisible():
             return
 
-        if self._shop_manual_pos is not None:
-            x = int(self._shop_manual_pos.x())
-            y = int(self._shop_manual_pos.y())
-        else:
-            fg = self.frameGeometry()
-            x = fg.left() + (fg.width() - dlg.width()) // 2
-            # Lift shop upward relative to the app center.
-            y = fg.top() + (fg.height() - dlg.height()) // 2 - max(20, int(self.height() * 0.09))
+        # Always magnetize to app center (manual shop dragging disabled).
+        self._shop_manual_pos = None
+        fg = self.frameGeometry()
+        x = fg.left() + (fg.width() - dlg.width()) // 2
+        # Lift shop upward relative to the app center.
+        y = fg.top() + (fg.height() - dlg.height()) // 2 - max(20, int(self.height() * 0.09))
 
         screen = self.screen() or QtGui.QGuiApplication.primaryScreen()
         if screen is not None:
@@ -2072,8 +2070,6 @@ class _DugongWindow(QtWidgets.QWidget):
             x = max(sg.left(), min(x, sg.right() - dlg.width() + 1))
             y = max(sg.top(), min(y, sg.bottom() - dlg.height() + 1))
         dlg.move(x, y)
-        if self._shop_manual_pos is not None:
-            self._shop_manual_pos = QtCore.QPoint(x, y)
         dlg.raise_()
 
     def _open_shop_dialog(self) -> None:
@@ -2122,10 +2118,7 @@ class _DugongWindow(QtWidgets.QWidget):
         bg_label.setPixmap(bg)
         bg_label.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
 
-        dlg.setProperty("shop_drag_surface", True)
-        root.setProperty("shop_drag_surface", True)
-        dlg.installEventFilter(self)
-        root.installEventFilter(self)
+        # Keep shop fixed to magnetic center; no manual dragging surface.
 
         hint = QtWidgets.QLabel("", root)
         hint.setGeometry(int(dlg.width() * 0.24), int(dlg.height() * 0.84), int(dlg.width() * 0.52), 30)
