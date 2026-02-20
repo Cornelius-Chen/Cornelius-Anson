@@ -162,6 +162,9 @@ class _DugongWindow(QtWidgets.QWidget):
         self._owned_bubbles: set[str] = {"default"}
         self._owned_titles: set[str] = {"drifter"}
         self._floating_rewards: list[dict[str, float | str]] = []
+        self._shop_dialog: QtWidgets.QDialog | None = None
+        self._shop_hint_label: QtWidgets.QLabel | None = None
+        self._did_initial_center = False
 
         self._dugong_frame = QtGui.QPixmap()
         self._x = 0.0
@@ -966,12 +969,27 @@ class _DugongWindow(QtWidgets.QWidget):
         self._layout_overlay()
         self._reset_dugong_position()
         self._position_bubble_near_mouth()
+        self._position_shop_dialog()
         self._update_frame(force=True)
         self.update()
 
+    def moveEvent(self, e: QtGui.QMoveEvent) -> None:
+        super().moveEvent(e)
+        self._position_shop_dialog()
+
     def showEvent(self, e: QtGui.QShowEvent) -> None:
         self._apply_screen_width()
+        if not self._did_initial_center:
+            screen = QtGui.QGuiApplication.primaryScreen()
+            if screen is not None:
+                geo = screen.availableGeometry()
+                self.move(
+                    geo.left() + (geo.width() - self.width()) // 2,
+                    geo.top() + (geo.height() - self.height()) // 2,
+                )
+            self._did_initial_center = True
         super().showEvent(e)
+        self._position_shop_dialog()
 
     # -------- animation state ----------
     def _frame_list(
@@ -1969,36 +1987,252 @@ class _DugongWindow(QtWidgets.QWidget):
             self._on_pomo_skip()
 
     def _emit_shop(self) -> None:
-        menu = QtWidgets.QMenu(self)
-        items = [
-            ("skin", "horse", 120, "Skin: Horse"),
-            ("bubble", "ocean", 80, "Bubble: Ocean"),
-            ("title", "explorer", 60, "Title: Explorer"),
+        self._open_shop_dialog()
+
+    def _shop_skin_preview(self, skin_id: str, size: QtCore.QSize) -> QtGui.QPixmap:
+        assets_dir = self._resolve_skin_assets_dir(self._skin_root, skin_id)
+        for prefix in ("Idle_loop", "Swim_loop", "React_chill"):
+            frames = self._load_by_prefix(assets_dir, prefix)
+            if frames:
+                return frames[0].scaled(size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+        return QtGui.QPixmap()
+
+    def _shop_badge_preview(self, title_id: str, size: QtCore.QSize) -> QtGui.QPixmap:
+        pm = QtGui.QPixmap(size)
+        pm.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(pm)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        bg = QtGui.QColor(30, 72, 110, 220)
+        border = QtGui.QColor(150, 220, 245, 210)
+        fg = QtGui.QColor(245, 252, 255, 245)
+        painter.setPen(QtGui.QPen(border, 2))
+        painter.setBrush(QtGui.QBrush(bg))
+        painter.drawEllipse(2, 2, size.width() - 4, size.height() - 4)
+        label = self._title_label(title_id)
+        letter = (label[:1] or "?").upper()
+        font = QtGui.QFont("Segoe UI", max(9, int(size.height() * 0.38)), QtGui.QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(fg)
+        painter.drawText(pm.rect(), QtCore.Qt.AlignCenter, letter)
+        painter.end()
+        return pm
+
+    def _item_state_suffix(self, kind: str, item_id: str, price: int) -> str:
+        item_l = item_id.lower()
+        if kind == "skin":
+            owned = item_l in self._owned_skins
+            equipped = item_id == self._equipped_skin_id
+        elif kind == "bubble":
+            owned = item_l in self._owned_bubbles
+            equipped = item_id == self._equipped_bubble_style
+        else:
+            owned = item_l in self._owned_titles
+            equipped = item_id == self._equipped_title_id
+        if equipped:
+            return "已装备"
+        if owned:
+            return "已拥有"
+        return f"{int(price)} 珍珠"
+
+    def _position_shop_dialog(self) -> None:
+        dlg = self._shop_dialog
+        if dlg is None or not dlg.isVisible():
+            return
+
+        fg = self.frameGeometry()
+        x = fg.left() + (fg.width() - dlg.width()) // 2
+        # Lift shop upward relative to the app center.
+        y = fg.top() + (fg.height() - dlg.height()) // 2 - max(20, int(self.height() * 0.09))
+
+        screen = self.screen() or QtGui.QGuiApplication.primaryScreen()
+        if screen is not None:
+            sg = screen.availableGeometry()
+            x = max(sg.left(), min(x, sg.right() - dlg.width() + 1))
+            y = max(sg.top(), min(y, sg.bottom() - dlg.height() + 1))
+        dlg.move(x, y)
+        dlg.raise_()
+
+    def _open_shop_dialog(self) -> None:
+        if self._shop_dialog is not None and self._shop_dialog.isVisible():
+            self._position_shop_dialog()
+            self._shop_dialog.raise_()
+            self._shop_dialog.activateWindow()
+            return
+
+        # Magnetic shop window: follows the main Dugong bar position.
+        dlg = QtWidgets.QDialog(None)
+        dlg.setWindowTitle("Dugong Shop")
+        dlg.setWindowFlags(QtCore.Qt.Tool | QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint)
+        dlg.setModal(False)
+        dlg.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+
+        bg_src = QtGui.QPixmap(str(self._assets_root / "dugong_shop.png"))
+        if bg_src.isNull():
+            # fallback to old menu if asset is missing
+            menu = QtWidgets.QMenu(self)
+            menu.addAction("shop asset missing")
+            menu.exec(QtGui.QCursor.pos())
+            return
+
+        # Use different sizing rules for compact/full modes.
+        if self._compact_mode:
+            target_h = min(430, max(290, int(self.height() * 1.22)))
+            max_w = max(430, int(self.width() * 1.08))
+        else:
+            target_h = min(520, max(320, int(self.height() * 1.45)))
+            max_w = max(640, int(self.width() * 0.72))
+        bg = bg_src.scaledToHeight(target_h, QtCore.Qt.SmoothTransformation)
+        if bg.width() > max_w:
+            bg = bg.scaledToWidth(max_w, QtCore.Qt.SmoothTransformation)
+        dlg.setFixedSize(bg.width(), bg.height())
+
+        root = QtWidgets.QFrame(dlg)
+        root.setGeometry(0, 0, dlg.width(), dlg.height())
+        root.setStyleSheet("background: transparent;")
+
+        bg_label = QtWidgets.QLabel(root)
+        bg_label.setGeometry(0, 0, dlg.width(), dlg.height())
+        bg_label.setPixmap(bg)
+
+        hint = QtWidgets.QLabel("", root)
+        hint.setGeometry(int(dlg.width() * 0.24), int(dlg.height() * 0.84), int(dlg.width() * 0.52), 30)
+        hint.setAlignment(QtCore.Qt.AlignCenter)
+        hint.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(236,247,255,245);
+                background: rgba(18,48,74,210);
+                border: 1px solid rgba(128,198,234,175);
+                border-radius: 9px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 2px 8px;
+            }
+            """
+        )
+        hint.hide()
+        self._shop_hint_label = hint
+
+        def mk_item_btn(
+            icon: QtGui.QPixmap,
+            rect: QtCore.QRect,
+            hover_text: str,
+            on_click: Callable[[], None],
+            *,
+            hit_expand_w: int = 0,
+            hit_expand_h: int = 0,
+        ) -> QtWidgets.QPushButton:
+            hit_rect = QtCore.QRect(
+                rect.x() - (hit_expand_w // 2),
+                rect.y() - (hit_expand_h // 2),
+                rect.width() + hit_expand_w,
+                rect.height() + hit_expand_h,
+            )
+            b = QtWidgets.QPushButton("", root)
+            b.setGeometry(hit_rect)
+            b.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+            b.setFlat(True)
+            b.setStyleSheet(
+                """
+                QPushButton {
+                    color: rgba(245,252,255,240);
+                    background: transparent;
+                    border: none;
+                    border-radius: 0px;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    background: transparent;
+                    border: none;
+                }
+                """
+            )
+            if not icon.isNull():
+                b.setIcon(QtGui.QIcon(icon))
+                b.setIconSize(QtCore.QSize(rect.width(), rect.height()))
+            b.setProperty("shop_info", hover_text)
+            b.installEventFilter(self)
+            b.clicked.connect(lambda _checked=False, fn=on_click: fn())
+            return b
+
+        # close button
+        close_btn = QtWidgets.QPushButton("X", root)
+        close_btn.setGeometry(dlg.width() - 46, 12, 34, 34)
+        close_btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        close_btn.setStyleSheet(
+            """
+            QPushButton {
+                color: rgba(248,253,255,248);
+                background: rgba(10,34,58,235);
+                border: 1px solid rgba(150,210,240,205);
+                border-radius: 10px;
+                font-size: 15px;
+                font-weight: 900;
+            }
+            QPushButton:hover {
+                background: rgba(22,52,82,240);
+            }
+            """
+        )
+        close_btn.raise_()
+        close_btn.clicked.connect(dlg.close)
+
+        # Main target: left wooden shelf for skins (image cards)
+        skin_items = [
+            ("default", 0, "Default"),
+            ("horse", 120, "Horse"),
+            ("king", 160, "King"),
         ]
-        for kind, item_id, price, label in items:
-            owned = False
-            if kind == "skin":
-                owned = item_id.lower() in self._owned_skins
-            elif kind == "bubble":
-                owned = item_id.lower() in self._owned_bubbles
-            elif kind == "title":
-                owned = item_id.lower() in self._owned_titles
-            equipped = (
-                (kind == "skin" and item_id == self._equipped_skin_id)
-                or (kind == "bubble" and item_id == self._equipped_bubble_style)
-                or (kind == "title" and item_id == self._equipped_title_id)
-            )
-            if equipped:
-                suffix = "(equipped)"
-            elif owned:
-                suffix = "(owned)"
-            else:
-                suffix = f"({price} pearls)"
-            action = menu.addAction(f"{label} {suffix}")
-            action.triggered.connect(
-                lambda _checked=False, k=kind, i=item_id, p=price: self._on_shop_action and self._on_shop_action(k, i, p)
-            )
-        menu.exec(QtGui.QCursor.pos())
+        skin_y = [int(dlg.height() * 0.228), int(dlg.height() * 0.372), int(dlg.height() * 0.505)]
+        for idx, (sid, price, label) in enumerate(skin_items):
+            suffix = self._item_state_suffix("skin", sid, price)
+            hover_text = f"皮肤 {label} | {suffix}"
+            rect = QtCore.QRect(int(dlg.width() * 0.242), skin_y[idx], int(dlg.width() * 0.246), int(dlg.height() * 0.183))
+            icon = self._shop_skin_preview(sid, QtCore.QSize(rect.width() - 8, rect.height() - 8))
+
+            def on_skin_click(_checked: bool = False, item_id: str = sid, p: int = price) -> None:
+                if self._on_shop_action:
+                    self._on_shop_action("skin", item_id, p)
+                dlg.close()
+
+            mk_item_btn(icon, rect, hover_text, on_skin_click, hit_expand_w=16, hit_expand_h=10)
+
+        # Right pearl seats reserved for title/badge icons.
+        badge_items = [
+            ("drifter", 0, "Wanderer"),
+            ("explorer", 60, "Explorer"),
+        ]
+        badge_x = [int(dlg.width() * 0.68), int(dlg.width() * 0.77)]
+        for idx, (tid, price, label) in enumerate(badge_items):
+            suffix = self._item_state_suffix("title", tid, price)
+            hover_text = f"徽章 {label} | {suffix}"
+            rect = QtCore.QRect(badge_x[idx], int(dlg.height() * 0.54), int(dlg.width() * 0.108), int(dlg.height() * 0.162))
+            icon = self._shop_badge_preview(tid, QtCore.QSize(rect.width() - 8, rect.height() - 8))
+
+            def on_title_click(_checked: bool = False, item_id: str = tid, p: int = price) -> None:
+                if self._on_shop_action:
+                    self._on_shop_action("title", item_id, p)
+                dlg.close()
+
+            mk_item_btn(icon, rect, hover_text, on_title_click, hit_expand_w=14, hit_expand_h=10)
+
+        dlg.destroyed.connect(lambda _obj=None: setattr(self, "_shop_dialog", None))
+        dlg.show()
+        self._position_shop_dialog()
+        dlg.raise_()
+        dlg.activateWindow()
+        self._shop_dialog = dlg
+
+    def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:
+        if self._shop_hint_label is not None:
+            info = watched.property("shop_info") if watched is not None else None
+            if isinstance(info, str) and info:
+                if event.type() == QtCore.QEvent.Enter:
+                    self._shop_hint_label.setText(info)
+                    self._shop_hint_label.show()
+                elif event.type() == QtCore.QEvent.Leave:
+                    self._shop_hint_label.hide()
+        return super().eventFilter(watched, event)
 
     def _emit_wardrobe(self) -> None:
         menu = QtWidgets.QMenu(self)
