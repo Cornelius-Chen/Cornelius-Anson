@@ -191,6 +191,10 @@ class _DugongWindow(QtWidgets.QWidget):
         self._shop_edge_hold_timer = QtCore.QTimer(self)
         self._shop_edge_hold_timer.setSingleShot(True)
         self._shop_edge_hold_timer.timeout.connect(self._enable_shop_edge_drag)
+        self._jokes: list[str] = []
+        self._joke_timer = QtCore.QTimer(self)
+        self._joke_timer.setSingleShot(True)
+        self._joke_timer.timeout.connect(self._emit_random_joke)
         self._did_initial_center = False
 
         self._dugong_frame = QtGui.QPixmap()
@@ -464,12 +468,52 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bg_timer.setInterval(self._bg_tick_ms)
         self._bg_timer.timeout.connect(self._tick_bg)
         self._bg_timer.start()
+        self._init_joke_broadcast()
 
         self._layout_overlay()
         self._reset_dugong_position()
         self._update_frame(force=True)
 
     # -------- assets ----------
+    def _init_joke_broadcast(self) -> None:
+        self._jokes = self._load_joke_library()
+        if self._jokes:
+            self._schedule_next_joke()
+
+    def _load_joke_library(self) -> list[str]:
+        candidates = [
+            self._assets_root / "jokes" / "cold_jokes.txt",
+            self._assets_root / "cold_jokes.txt",
+        ]
+        lines: list[str] = []
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                for raw in path.read_text(encoding="utf-8-sig").splitlines():
+                    line = raw.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    lines.append(line)
+            except Exception:
+                continue
+            if lines:
+                break
+        return lines
+
+    def _schedule_next_joke(self) -> None:
+        if not self._jokes:
+            return
+        delay_ms = random.randint(15_000, 30_000)
+        self._joke_timer.start(delay_ms)
+
+    def _emit_random_joke(self) -> None:
+        if not self._jokes:
+            return
+        joke = random.choice(self._jokes)
+        self.show_bubble(joke, ms=4200)
+        self._schedule_next_joke()
+
     def _init_mode_sounds(self) -> None:
         sound_dir = self._assets_root / "sound"
         mode_to_file = {

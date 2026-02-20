@@ -309,3 +309,21 @@
   - `afplay`/Windows PowerShell 播放进程改为 `stdout/stderr` 静默，避免终端刷错误文本。
 - Validation:
   - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-21 00:59:03
+- Scope: 增加 Dugong 冷笑话库与随机播报（每 15-30 秒）。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/ui/assets/jokes/cold_jokes.txt
+  - dugong/dugong_app/ui/assets/README.md
+  - Anson_Update.md
+- Changes:
+  - 新增笑话定时器（single-shot）：每次随机 15-30 秒后触发一次。
+  - 触发时从笑话库随机抽取一句，通过现有 `show_bubble()` 显示。
+  - 新增笑话库读取逻辑，默认读取：
+    - `dugong/dugong_app/ui/assets/jokes/cold_jokes.txt`
+    - 兼容回退：`dugong/dugong_app/ui/assets/cold_jokes.txt`
+  - 笑话库规则：一行一条，空行与 `#` 注释行自动忽略。
+  - 新增初始冷笑话样例，便于直接替换粘贴。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`

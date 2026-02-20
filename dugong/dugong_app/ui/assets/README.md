@@ -42,3 +42,16 @@ Legacy names are still supported:
 ## Direction Rule
 - Put only right-facing frames in assets.
 - Left-facing frames are generated automatically by runtime mirror.
+
+## Joke Library
+
+Random joke bubbles are loaded from:
+
+- `dugong/dugong_app/ui/assets/jokes/cold_jokes.txt`
+
+Rules:
+
+- One joke per line.
+- Empty lines are ignored.
+- Lines starting with `#` are treated as comments.
+- Dugong will randomly pick one line every 15-30 seconds.
