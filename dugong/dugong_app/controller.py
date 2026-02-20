@@ -14,6 +14,7 @@ from dugong_app.core.events import (
     click_event,
     manual_ping_event,
     mode_change_event,
+    profile_update_event,
     pomo_complete_event,
     pomo_pause_event,
     pomo_resume_event,
@@ -163,6 +164,7 @@ class DugongController:
                 on_pomo_start=self.on_pomo_start,
                 on_pomo_pause_resume=self.on_pomo_pause_resume,
                 on_pomo_skip=self.on_pomo_skip,
+                on_shop_action=self.on_shop_action,
                 source_id=self.source_id,
                 skin_id=self.config.skin_id,
             )
@@ -341,6 +343,14 @@ class DugongController:
                     "event_id": "",
                     "pomo_phase": "",
                     "pomo_session_id": "",
+                    "pearls": 0,
+                    "today_pearls": 0,
+                    "lifetime_pearls": 0,
+                    "focus_streak": 0,
+                    "day_streak": 0,
+                    "title_id": "drifter",
+                    "skin_id": "default",
+                    "bubble_style": "default",
                 },
             )
             entry["last_seen"] = now
@@ -365,17 +375,37 @@ class DugongController:
                 phase = str(ev.payload.get("phase", ev.payload.get("from_phase", ""))).lower()
                 if phase == "focus":
                     entry["pomo_phase"] = ""
+            elif ev.event_type == "profile_update":
+                entry["pearls"] = int(ev.payload.get("pearls", entry.get("pearls", 0)))
+                entry["today_pearls"] = int(ev.payload.get("today_pearls", entry.get("today_pearls", 0)))
+                entry["lifetime_pearls"] = int(ev.payload.get("lifetime_pearls", entry.get("lifetime_pearls", 0)))
+                entry["focus_streak"] = int(ev.payload.get("focus_streak", entry.get("focus_streak", 0)))
+                entry["day_streak"] = int(ev.payload.get("day_streak", entry.get("day_streak", 0)))
+                entry["title_id"] = str(ev.payload.get("title_id", entry.get("title_id", "drifter")))
+                entry["skin_id"] = str(ev.payload.get("skin_id", entry.get("skin_id", "default")))
+                entry["bubble_style"] = str(ev.payload.get("bubble_style", entry.get("bubble_style", "default")))
 
     def _shared_entities(self) -> list[dict[str, str | float]]:
         now = time.time()
-        ttl_seconds = 20 * 60
+        # Online presence TTL: if no remote events arrive within this window,
+        # treat peer as offline and hide it from the shared aquarium.
+        ttl_seconds = max(30.0, float(self.sync_interval_seconds * 3))
         remote = [
             {
                 "source": src,
                 "mode": str(info.get("mode", "unknown")),
+                "pomo_phase": str(info.get("pomo_phase", "")),
                 "last_seen": float(info.get("last_seen", 0.0)),
                 "last_event_type": str(info.get("event_type", "")),
                 "last_event_id": str(info.get("event_id", "")),
+                "pearls": int(info.get("pearls", 0)),
+                "today_pearls": int(info.get("today_pearls", 0)),
+                "lifetime_pearls": int(info.get("lifetime_pearls", 0)),
+                "focus_streak": int(info.get("focus_streak", 0)),
+                "day_streak": int(info.get("day_streak", 0)),
+                "title_id": str(info.get("title_id", "drifter")),
+                "skin_id": str(info.get("skin_id", "default")),
+                "bubble_style": str(info.get("bubble_style", "default")),
                 "is_local": 0.0,
             }
             for src, info in self._remote_presence.items()
@@ -385,7 +415,16 @@ class DugongController:
         local = {
             "source": self.source_id,
             "mode": self.state.mode,
+            "pomo_phase": self.pomodoro.view().phase,
             "last_seen": now,
+            "pearls": int(self.reward.pearls),
+            "today_pearls": int(self.reward.today_pearls),
+            "lifetime_pearls": int(self.reward.lifetime_pearls),
+            "focus_streak": int(self.reward.focus_streak),
+            "day_streak": int(self.reward.day_streak),
+            "title_id": str(self.reward.equipped_title_id),
+            "skin_id": str(self.reward.equipped_skin_id),
+            "bubble_style": str(self.reward.equipped_bubble_style),
             "is_local": 1.0,
         }
         return [local, *remote]
@@ -479,10 +518,7 @@ class DugongController:
 
     def _state_text(self) -> str:
         cofocus_min = int(self.reward.cofocus_seconds_total) // 60
-        return (
-            f"E:{self.state.energy} M:{self.state.mood} F:{self.state.focus} "
-            f"[{self.state.mode}] P:{self.reward.pearls} C:{cofocus_min}m"
-        )
+        return f"mode:{self.state.mode}  pearls:{self.reward.pearls}  cofocus:{cofocus_min}m"
 
     def _pomo_text(self) -> str:
         view = self.pomodoro.view()
@@ -551,8 +587,25 @@ class DugongController:
                 pomo_state=self.pomodoro.view().state,
                 reward_stats={
                     "pearls": int(self.reward.pearls),
+                    "lifetime_pearls": int(self.reward.lifetime_pearls),
+                    "today_pearls": int(self.reward.today_pearls),
                     "focus_streak": int(self.reward.focus_streak),
                     "day_streak": int(self.reward.day_streak),
+                    "equipped_skin_id": self.reward.equipped_skin_id,
+                    "equipped_bubble_style": self.reward.equipped_bubble_style,
+                    "equipped_title_id": self.reward.equipped_title_id,
+                    "shop_owned_skins": list(self.reward.shop_owned_skins),
+                    "shop_owned_bubbles": list(self.reward.shop_owned_bubbles),
+                    "shop_owned_titles": list(self.reward.shop_owned_titles),
+                },
+                local_profile={
+                    "source": self.source_id,
+                    "mode": self.state.mode,
+                    "pomo_phase": self.pomodoro.view().phase,
+                    "pomo_state": self.pomodoro.view().state.lower(),
+                    "energy": int(self.state.energy),
+                    "mood": int(self.state.mood),
+                    "focus": int(self.state.focus),
                 },
                 bubble=bubble,
                 entities=self._shared_entities(),
@@ -568,7 +621,9 @@ class DugongController:
         if event.event_type == "pomo_complete" and str(event.source) == self.source_id:
             grant = self.reward.grant_for_completion(event.payload)
             if grant is not None:
+                self._nudge_mood(+5)
                 self._reward_dirty = True
+                self._emit_profile_update()
                 self.bus.emit(
                     reward_grant_event(
                         pearls=grant.pearls,
@@ -582,14 +637,18 @@ class DugongController:
                 )
         elif event.event_type == "pomo_skip" and str(event.source) == self.source_id:
             self.reward.on_skip(str(event.payload.get("from_phase", "")))
+            self._nudge_mood(-3)
             self._reward_dirty = True
+            self._emit_profile_update()
         elif event.event_type == "co_focus_milestone" and str(event.source) == self.source_id:
             grant = self.reward.grant_for_cofocus(
                 milestone_id=str(event.payload.get("milestone_id", "")),
                 pearls=int(self.config.cofocus_bonus_pearls),
             )
             if grant is not None:
+                self._nudge_mood(+2)
                 self._reward_dirty = True
+                self._emit_profile_update()
                 self.bus.emit(
                     reward_grant_event(
                         pearls=grant.pearls,
@@ -627,7 +686,12 @@ class DugongController:
         self.state = switch_mode(self.state, mode)
         self.bus.emit(mode_change_event(mode, source=self.source_id))
         self._request_fast_sync()
-        self.refresh(bubble=f"Mode -> {mode}")
+        mode_bubble = {
+            "study": "📘 进入专注模式",
+            "chill": "🌊 进入放松模式",
+            "rest": "🌙 进入休息模式",
+        }.get(mode, f"切换模式: {mode}")
+        self.refresh(bubble=mode_bubble)
 
     def on_click(self) -> None:
         if self.unread_remote_count > 0:
@@ -639,6 +703,44 @@ class DugongController:
         self.bus.emit(manual_ping_event(message, source=self.source_id))
         self._request_fast_sync()
         self.refresh(bubble="Signal sent")
+
+    def _emit_profile_update(self) -> None:
+        self.bus.emit(
+            profile_update_event(
+                pearls=int(self.reward.pearls),
+                today_pearls=int(self.reward.today_pearls),
+                lifetime_pearls=int(self.reward.lifetime_pearls),
+                focus_streak=int(self.reward.focus_streak),
+                day_streak=int(self.reward.day_streak),
+                title_id=str(self.reward.equipped_title_id),
+                skin_id=str(self.reward.equipped_skin_id),
+                bubble_style=str(self.reward.equipped_bubble_style),
+                source=self.source_id,
+            )
+        )
+
+    def _nudge_mood(self, delta: int) -> None:
+        from dugong_app.core.state import clamp_stat
+
+        self.state = self.state.__class__(
+            energy=self.state.energy,
+            mood=clamp_stat(self.state.mood + int(delta)),
+            focus=self.state.focus,
+            mode=self.state.mode,
+            tick_count=self.state.tick_count,
+        )
+
+    def on_shop_action(self, item_kind: str, item_id: str, price: int) -> None:
+        ok, reason = self.reward.buy_shop_item(item_kind=item_kind, item_id=item_id, price=price)
+        self._reward_dirty = True
+        if ok:
+            self._emit_profile_update()
+            self.refresh(bubble=f"Shop {reason}: {item_kind}/{item_id}")
+            return
+        if reason == "insufficient_pearls":
+            self.refresh(bubble="Not enough pearls")
+            return
+        self.refresh(bubble=f"Shop failed: {reason}")
 
     def _emit_pomo_event(self, event_type: str, payload: dict) -> None:
         if event_type == "pomo_start":
@@ -758,6 +860,8 @@ class DugongController:
 
     def on_tick(self) -> None:
         self.state = apply_tick(self.state, tick_seconds=self.tick_seconds)
+        if self.pomodoro.view().state == "IDLE":
+            self._nudge_mood(-1)
         self.bus.emit(state_tick_event(self.state.to_dict(), tick_seconds=self.tick_seconds, source=self.source_id))
         self.refresh()
 
@@ -796,6 +900,7 @@ class DugongController:
                 payload={"mode": self.state.mode},
             )
         )
+        self._emit_profile_update()
         self._request_fast_sync()
         self.refresh(bubble=f"Dugong online [{self.source_id}]")
         self.on_sync_now()

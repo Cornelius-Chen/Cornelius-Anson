@@ -611,3 +611,76 @@
 - Validation:
   - python -m py_compile dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/controller.py -> ok
   - (cd dugong) python -m pytest -q -> 43 passed
+
+## 2026-02-19 19:12:06
+- Scope: Game-style hover attribute card (replace EMF-first feel with visible creature profile).
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/controller.py
+- Changes:
+  - Added mouse-hover card for local and remote Dugongs.
+  - Local card now shows stage/title, mode/pomodoro, mood-energy-focus, pearls/streak/day.
+  - Peer card shows ally profile (mode/pomodoro/last seen) for co-focus readability.
+  - Added stage mapping by pearl count (E..S rank + title).
+  - Shared entities now include pomo_phase so remote hover card can reflect focus/break state.
+  - Stored raw state text for local stat parsing and enabled hover repaint updates.
+- Validation:
+  - python -m py_compile dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/controller.py -> ok
+  - (cd dugong) python -m pytest -q -> 43 passed
+
+## 2026-02-19 19:21:10
+- Scope: Product-layer completion pass (not only hover card): stronger rewards + pearl assetization + MVP shop + life-like stat persistence hooks.
+- Files:
+  - dugong/dugong_app/services/reward_service.py
+  - dugong/dugong_app/controller.py
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/debug.py
+  - dugong/tests/test_pomodoro_reward.py
+  - dugong/README.md
+- Changes:
+  - Reward system upgraded:
+    - Added 	oday_pearls and lifetime_pearls.
+    - Replaced linear streak bonus with tiered rewards (1-3, 4-6, 7+).
+  - Added mini-shop backend in reward service:
+    - purchasable/equippable skin/bubble/title (idempotent equip path for owned items).
+  - Added mood persistence nudges tied to behavior:
+    - focus complete +5, skip -3, co-focus milestone +2, idle tick decay -1.
+  - Controller/UI integration:
+    - state line simplified (de-emphasize old EMF display in main line).
+    - reward payload now includes current/today/lifetime + equipped cosmetic ids.
+    - local profile payload passed to UI hover card (no longer regex-dependent).
+    - shop action callback wired in controller.
+  - UI gameplay feel:
+    - shop button with 3-item MVP menu.
+    - title prefix in local name tag.
+    - bubble style swaps with equipped bubble style.
+    - runtime local skin swap when equipped skin changes.
+    - pearl counter now shows today/lifetime context.
+  - Debug output extended with new reward/cosmetic fields.
+- Validation:
+  - python -m py_compile dugong/dugong_app/services/reward_service.py dugong/dugong_app/controller.py dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/debug.py dugong/tests/test_pomodoro_reward.py -> ok
+  - (cd dugong) python -m pytest -q -> 45 passed
+
+## 2026-02-19 19:41:30
+- Scope: Full product-layer sync follow-up: sync pearl/title cosmetics across peers + complete prior roadmap parts.
+- Files:
+  - dugong/dugong_app/core/events.py
+  - dugong/dugong_app/services/reward_service.py
+  - dugong/dugong_app/controller.py
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/debug.py
+  - dugong/tests/test_pomodoro_reward.py
+  - dugong/tests/test_controller_policy.py
+  - dugong/README.md
+- Changes:
+  - Added profile_update event and propagation path for cross-machine profile sync.
+  - Remote Dugong cards now show synced pearls/today/streak/title (not only mode/pomo).
+  - Remote name tags now include synced title prefix.
+  - Reward model expanded with 	oday_pearls + lifetime_pearls and tiered streak rewards.
+  - Added MVP shop backend + UI hook (skin/bubble/title purchase/equip).
+  - Local mood persistence nudges tied to behavior outcomes (complete/skip/co-focus/idle).
+  - Local profile now passed structurally to UI hover card (no regex dependency).
+  - README updated with profile sync event.
+- Validation:
+  - python -m py_compile dugong/dugong_app/controller.py dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/services/reward_service.py dugong/dugong_app/core/events.py dugong/tests/test_controller_policy.py -> ok
+  - (cd dugong) python -m pytest -q -> 46 passed

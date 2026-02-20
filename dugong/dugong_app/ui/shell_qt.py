@@ -23,6 +23,7 @@ class DugongShell:
         on_pomo_start: Callable[[], None] | None = None,
         on_pomo_pause_resume: Callable[[], None] | None = None,
         on_pomo_skip: Callable[[], None] | None = None,
+        on_shop_action: Callable[[str, str, int], None] | None = None,
         source_id: str = "local",
         skin_id: str = "default",
     ) -> None:
@@ -35,6 +36,7 @@ class DugongShell:
             on_pomo_start,
             on_pomo_pause_resume,
             on_pomo_skip,
+            on_shop_action,
             source_id=source_id,
             skin_id=skin_id,
         )
@@ -52,7 +54,8 @@ class DugongShell:
         state_text: str,
         pomo_text: str | None = None,
         pomo_state: str | None = None,
-        reward_stats: dict[str, int] | None = None,
+        reward_stats: dict[str, int | str] | None = None,
+        local_profile: dict[str, str | int] | None = None,
         bubble: str | None = None,
         entities: list[dict[str, str | float]] | None = None,
         local_source: str | None = None,
@@ -64,6 +67,8 @@ class DugongShell:
             self._win.set_pomo_state(pomo_state)
         if reward_stats is not None:
             self._win.set_reward_stats(reward_stats)
+        if local_profile is not None:
+            self._win.set_local_profile(local_profile)
         self._win.apply_sprite_hint(sprite)
         if entities is not None:
             self._win.set_shared_entities(entities, local_source=local_source)
@@ -87,6 +92,7 @@ class _DugongWindow(QtWidgets.QWidget):
         on_pomo_start: Callable[[], None] | None,
         on_pomo_pause_resume: Callable[[], None] | None,
         on_pomo_skip: Callable[[], None] | None,
+        on_shop_action: Callable[[str, str, int], None] | None,
         source_id: str = "local",
         skin_id: str = "default",
     ) -> None:
@@ -98,6 +104,7 @@ class _DugongWindow(QtWidgets.QWidget):
         self._on_pomo_start = on_pomo_start
         self._on_pomo_pause_resume = on_pomo_pause_resume
         self._on_pomo_skip = on_pomo_skip
+        self._on_shop_action = on_shop_action
         self._timers: list[QtCore.QTimer] = []
         self._local_source = source_id or "local"
         self._peer_entities: dict[str, dict[str, float | str]] = {}
@@ -138,9 +145,20 @@ class _DugongWindow(QtWidgets.QWidget):
         self._last_mode = ""
         self._pomo_state = "IDLE"
         self._last_pomo_state = "IDLE"
+        self._state_text_raw = ""
+        self._local_profile: dict[str, str | int] = {}
+        self._hover_pos = QtCore.QPoint(-1, -1)
         self._pearls_total = 0
+        self._lifetime_pearls = 0
+        self._today_pearls = 0
         self._focus_streak = 0
         self._day_streak = 0
+        self._equipped_title_id = "drifter"
+        self._equipped_bubble_style = "default"
+        self._equipped_skin_id = self._skin_id
+        self._owned_skins: set[str] = {"default"}
+        self._owned_bubbles: set[str] = {"default"}
+        self._owned_titles: set[str] = {"drifter"}
         self._floating_rewards: list[dict[str, float | str]] = []
 
         self._dugong_frame = QtGui.QPixmap()
@@ -172,7 +190,7 @@ class _DugongWindow(QtWidgets.QWidget):
         self._title.setStyleSheet("color: rgba(255,255,255,210); font-size: 18px; font-weight: 700;")
         self._title.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
 
-        self._pearl = QtWidgets.QLabel("Pearls 0  |  S0 D0", self)
+        self._pearl = QtWidgets.QLabel("Pearls 0 (+0 today)", self)
         self._pearl.setAlignment(QtCore.Qt.AlignCenter)
         self._pearl.setFixedHeight(22)
         self._pearl.setMinimumWidth(170)
@@ -193,6 +211,7 @@ class _DugongWindow(QtWidgets.QWidget):
         self._state = QtWidgets.QLabel("state", self)
         self._state.setStyleSheet("color: rgba(255,255,255,210); font-size: 14px;")
         self._state.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self._state.hide()
 
         self._pomo = QtWidgets.QLabel("POMO IDLE", self)
         self._pomo.setAlignment(QtCore.Qt.AlignCenter)
@@ -212,18 +231,72 @@ class _DugongWindow(QtWidgets.QWidget):
         """
         )
         self._bubble.hide()
+        self._bubble_tail = QtWidgets.QLabel(self)
+        self._bubble_tail.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+        self._bubble_tail.hide()
         self._bubble_timer = QtCore.QTimer(self)
         self._bubble_timer.setSingleShot(True)
-        self._bubble_timer.timeout.connect(self._bubble.hide)
+        self._bubble_timer.timeout.connect(self._hide_bubble_widgets)
 
-        self._bar = QtWidgets.QFrame(self)
-        self._bar.setStyleSheet("background: rgba(10,18,28,195); border-radius: 10px;")
-        self._bar.setFixedHeight(38)
-        lay = QtWidgets.QHBoxLayout(self._bar)
-        lay.setContentsMargins(10, 6, 10, 6)
-        lay.setSpacing(10)
+        self._focus_strip = QtWidgets.QFrame(self)
+        self._focus_strip.setStyleSheet(
+            "background: rgba(10,18,28,195); border: 1px solid rgba(130,190,230,120); border-radius: 9px;"
+        )
+        self._focus_strip.setFixedHeight(38)
+        flay = QtWidgets.QHBoxLayout(self._focus_strip)
+        # Keep vertical padding symmetric and avoid clipping inside framed content rect.
+        flay.setContentsMargins(8, 4, 8, 4)
+        flay.setSpacing(6)
+        flay.setAlignment(QtCore.Qt.AlignCenter)
 
-        def mk_btn(text: str, color: str, fn: Callable[[], None]) -> QtWidgets.QPushButton:
+        self._drawer = QtWidgets.QFrame(self)
+        self._drawer.setStyleSheet("background: rgba(9,18,28,220); border-radius: 12px;")
+        self._drawer.setFixedWidth(210)
+        self._drawer_open = False
+        self._drawer_anim = QtCore.QPropertyAnimation(self._drawer, b"geometry", self)
+        self._drawer_anim.setDuration(180)
+        self._drawer_anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
+
+        self._drawer_toggle = QtWidgets.QPushButton("menu", self)
+        self._drawer_toggle.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self._drawer_toggle.setStyleSheet(
+            """
+            QPushButton {
+                color: rgba(235,245,255,240);
+                background: rgba(14,36,58,210);
+                border: 1px solid rgba(130,190,230,150);
+                border-radius: 9px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 4px 10px;
+            }
+            """
+        )
+        self._drawer_toggle.clicked.connect(self._toggle_drawer)
+
+        self._quit_top = QtWidgets.QPushButton("", self)
+        self._quit_top.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self._quit_top.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DialogCloseButton))
+        self._quit_top.setIconSize(QtCore.QSize(14, 14))
+        self._quit_top.setFixedSize(24, 24)
+        self._quit_top.setStyleSheet(
+            """
+            QPushButton {
+                color: rgba(245,250,255,240);
+                background: rgba(32,52,74,215);
+                border: 1px solid rgba(150,190,230,140);
+                border-radius: 8px;
+            }
+            """
+        )
+        self._quit_top.clicked.connect(self._emit_quit)
+
+        def mk_btn(
+            text: str,
+            color: str,
+            fn: Callable[[], None],
+            icon: QtWidgets.QStyle.StandardPixmap | None = None,
+        ) -> QtWidgets.QPushButton:
             b = QtWidgets.QPushButton(text)
             b.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
             b.setStyleSheet(
@@ -232,32 +305,98 @@ class _DugongWindow(QtWidgets.QWidget):
                     color: white;
                     background: {color};
                     border: none;
-                    padding: 5px 10px;
+                    padding: 2px 8px;
                     border-radius: 8px;
                     font-weight: 600;
                     font-size: 12px;
                 }}
             """
             )
-            b.setMinimumWidth(50)
+            if icon is not None:
+                b.setIcon(self.style().standardIcon(icon))
+                b.setIconSize(QtCore.QSize(14, 14))
+            b.setMinimumWidth(56)
+            b.setFixedHeight(28)
             b.clicked.connect(fn)
             return b
 
-        lay.addWidget(mk_btn("study", "#1d3a57", lambda: self._emit_mode("study")))
-        lay.addWidget(mk_btn("chill", "#1d3a57", lambda: self._emit_mode("chill")))
-        lay.addWidget(mk_btn("rest", "#1d3a57", lambda: self._emit_mode("rest")))
         self._pomo_toggle = mk_btn("start", "#7b3f00", self._emit_pomo_toggle)
-        lay.addWidget(self._pomo_toggle)
-        lay.addWidget(mk_btn("skip", "#874321", self._emit_pomo_skip))
-        lay.addWidget(mk_btn("ping", "#275e44", self._emit_ping))
-        lay.addWidget(mk_btn("sync", "#6b4f1f", self._emit_sync))
-        lay.addWidget(mk_btn("quit", "#6a2c2c", self._emit_quit))
-        self._update_pomo_toggle_label(self._pomo_state)
-        self._bar.hide()
+        self._pomo_toggle.setMinimumWidth(96)
+        flay.addWidget(self._pomo_toggle)
+        self._pomo_skip_btn = mk_btn("skip", "#874321", self._emit_pomo_skip)
+        self._pomo_skip_btn.setMinimumWidth(80)
+        flay.addWidget(self._pomo_skip_btn)
 
-        self._hide_bar_timer = QtCore.QTimer(self)
-        self._hide_bar_timer.setSingleShot(True)
-        self._hide_bar_timer.timeout.connect(self._bar.hide)
+        dlay = QtWidgets.QVBoxLayout(self._drawer)
+        dlay.setContentsMargins(8, 8, 8, 8)
+        dlay.setSpacing(6)
+
+        self._drawer_tabs = QtWidgets.QTabWidget(self._drawer)
+        self._drawer_tabs.setDocumentMode(True)
+        self._drawer_tabs.setElideMode(QtCore.Qt.ElideRight)
+        self._drawer_tabs.setStyleSheet(
+            """
+            QTabWidget::pane {
+                border: 1px solid rgba(100,150,190,90);
+                border-radius: 8px;
+                background: rgba(7,16,26,145);
+            }
+            QTabBar::tab {
+                color: rgba(220,238,252,230);
+                background: rgba(17,39,62,175);
+                border: 1px solid rgba(100,150,190,80);
+                border-bottom: none;
+                min-width: 42px;
+                padding: 3px 6px;
+                margin-right: 2px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QTabBar::tab:selected {
+                background: rgba(34,74,108,215);
+            }
+            """
+        )
+
+        def mk_page(buttons: list[QtWidgets.QPushButton]) -> QtWidgets.QWidget:
+            page = QtWidgets.QWidget(self._drawer_tabs)
+            lay = QtWidgets.QVBoxLayout(page)
+            lay.setContentsMargins(8, 8, 8, 8)
+            lay.setSpacing(6)
+            for b in buttons:
+                lay.addWidget(b)
+            lay.addStretch(1)
+            return page
+
+        modes_page = mk_page(
+            [
+                mk_btn("专注", "#1d3a57", lambda: self._emit_mode("study")),
+                mk_btn("放松", "#1d3a57", lambda: self._emit_mode("chill")),
+                mk_btn("休息", "#1d3a57", lambda: self._emit_mode("rest")),
+            ]
+        )
+        economy_page = mk_page(
+            [
+                mk_btn("shop", "#36577a", self._emit_shop),
+                mk_btn("wardrobe", "#3f5d7b", self._emit_wardrobe),
+            ]
+        )
+        network_page = mk_page(
+            [
+                mk_btn("ping", "#275e44", self._emit_ping),
+                mk_btn("sync", "#6b4f1f", self._emit_sync),
+            ]
+        )
+        system_page = mk_page([mk_btn("quit", "#6a2c2c", self._emit_quit)])
+
+        self._drawer_tabs.addTab(modes_page, "M")
+        self._drawer_tabs.addTab(economy_page, "E")
+        self._drawer_tabs.addTab(network_page, "N")
+        self._drawer_tabs.addTab(system_page, "S")
+        dlay.addWidget(self._drawer_tabs, 1)
+        self._update_pomo_toggle_label(self._pomo_state)
 
         self._dugong_timer = QtCore.QTimer(self)
         self._dugong_timer.setInterval(self._dugong_anim_ms)
@@ -519,19 +658,64 @@ class _DugongWindow(QtWidgets.QWidget):
 
     def _layout_overlay(self) -> None:
         self._title.setGeometry(0, 8, self.width(), 26)
-        self._state.setGeometry(0, self.height() - 28, self.width(), 20)
         pearl_w = max(170, min(320, self._pearl.sizeHint().width() + 16))
-        self._pearl.setGeometry(14, 10, pearl_w, 22)
+        self._quit_top.move(8, 8)
+        self._quit_top.raise_()
+        self._pearl.setGeometry(38, 10, pearl_w, 22)
         chip_w = max(170, min(280, self._pomo.sizeHint().width() + 16))
         x = self.width() - chip_w - 14
         self._pomo.setGeometry(x, 10, chip_w, 22)
+        self._focus_strip.adjustSize()
+        focus_w = self._focus_strip.sizeHint().width() + 2
+        focus_h = self._focus_strip.height()
+        focus_x = max(14, x - focus_w - 8)
+        focus_y = max(6, self._pomo.y() - 4)
+        self._focus_strip.setGeometry(focus_x, focus_y, focus_w, focus_h)
 
-    def _place_bar(self) -> None:
-        self._bar.adjustSize()
-        w = self._bar.sizeHint().width()
-        x = (self.width() - w) // 2
-        y = self.height() - self._bar.height() - 8
-        self._bar.setGeometry(x, y, w, self._bar.height())
+        self._drawer_toggle.setFixedSize(62, 28)
+        self._place_drawer(animated=False)
+
+    def _drawer_closed_rect(self) -> QtCore.QRect:
+        margin = 10
+        toggle = self._drawer_toggle.geometry()
+        h = min(self.height() - 48, 248)
+        w = self._drawer.width()
+        top = max(34, self.height() - h - (toggle.height() + 12))
+        left = self.width() - margin
+        return QtCore.QRect(left, top, w, h)
+
+    def _drawer_open_rect(self) -> QtCore.QRect:
+        closed = self._drawer_closed_rect()
+        margin = 10
+        return QtCore.QRect(self.width() - closed.width() - margin, closed.y(), closed.width(), closed.height())
+
+    def _place_drawer(self, animated: bool) -> None:
+        if self._drawer_anim.state() == QtCore.QAbstractAnimation.Running:
+            self._drawer_anim.stop()
+        target = self._drawer_open_rect() if self._drawer_open else self._drawer_closed_rect()
+        tw = self._drawer_toggle.width()
+        th = self._drawer_toggle.height()
+        if self._drawer_open:
+            toggle_x = max(10, target.x() - tw - 8)
+            toggle_y = target.y()
+        else:
+            toggle_x = self.width() - tw - 10
+            toggle_y = self.height() - th - 10
+        self._drawer_toggle.setGeometry(toggle_x, toggle_y, tw, th)
+
+        self._drawer.raise_()
+        self._drawer_toggle.raise_()
+        if animated:
+            self._drawer_anim.setStartValue(self._drawer.geometry())
+            self._drawer_anim.setEndValue(target)
+            self._drawer_anim.start()
+        else:
+            self._drawer.setGeometry(target)
+
+    def _toggle_drawer(self) -> None:
+        self._drawer_open = not self._drawer_open
+        self._drawer_toggle.setText("close" if self._drawer_open else "menu")
+        self._place_drawer(animated=True)
 
     def _motion_bounds(self, frame: QtGui.QPixmap) -> tuple[float, float, float, float]:
         margin = 6.0
@@ -589,6 +773,14 @@ class _DugongWindow(QtWidgets.QWidget):
             "skin_id": "default",
             "last_event_id": "",
             "last_event_type": "",
+            "pomo_phase": "",
+            "pearls": 0,
+            "today_pearls": 0,
+            "lifetime_pearls": 0,
+            "focus_streak": 0,
+            "day_streak": 0,
+            "title_id": "drifter",
+            "bubble_style": "default",
         }
 
     def set_shared_entities(
@@ -622,9 +814,17 @@ class _DugongWindow(QtWidgets.QWidget):
             prev_mode = str(peer.get("mode", "unknown"))
             prev_event_id = str(peer.get("last_event_id", ""))
             peer["mode"] = str(entity.get("mode", peer.get("mode", "unknown")))
+            peer["pomo_phase"] = str(entity.get("pomo_phase", peer.get("pomo_phase", "")))
             peer["last_seen"] = float(entity.get("last_seen", time.time()))
             peer["last_event_type"] = str(entity.get("last_event_type", peer.get("last_event_type", "")))
             peer["last_event_id"] = str(entity.get("last_event_id", peer.get("last_event_id", "")))
+            peer["pearls"] = int(entity.get("pearls", peer.get("pearls", 0)))
+            peer["today_pearls"] = int(entity.get("today_pearls", peer.get("today_pearls", 0)))
+            peer["lifetime_pearls"] = int(entity.get("lifetime_pearls", peer.get("lifetime_pearls", 0)))
+            peer["focus_streak"] = int(entity.get("focus_streak", peer.get("focus_streak", 0)))
+            peer["day_streak"] = int(entity.get("day_streak", peer.get("day_streak", 0)))
+            peer["title_id"] = str(entity.get("title_id", peer.get("title_id", "drifter")))
+            peer["bubble_style"] = str(entity.get("bubble_style", peer.get("bubble_style", "default")))
 
             # Trigger remote reaction on every new remote event id (not only mode changes).
             if peer["last_event_id"] and peer["last_event_id"] != prev_event_id:
@@ -669,8 +869,7 @@ class _DugongWindow(QtWidgets.QWidget):
         self._rebuild_scaled_pixmaps()
         self._layout_overlay()
         self._reset_dugong_position()
-        if self._bar.isVisible():
-            self._place_bar()
+        self._position_bubble_near_mouth()
         self._update_frame(force=True)
         self.update()
 
@@ -978,6 +1177,7 @@ class _DugongWindow(QtWidgets.QWidget):
             self._step_peer_towards_target(current, peer)
 
         self._tick_floating_rewards()
+        self._position_bubble_near_mouth()
         self.update()
 
     def _tick_bg(self) -> None:
@@ -999,35 +1199,285 @@ class _DugongWindow(QtWidgets.QWidget):
         is_local: bool,
         anchor_w: int,
         anchor_h: int,
+        title_text: str | None = None,
     ) -> None:
-        raw = (source or "").strip()
-        if not raw:
+        name = (source or "").strip()
+        if not name:
             return
-        text = raw if len(raw) <= 14 else f"{raw[:13]}…"
+        name_text = name if len(name) <= 14 else f"{name[:13]}…"
+        title = (title_text or "").strip()
+        if not title and is_local:
+            title = self._title_label(self._equipped_title_id)
+        title = title if len(title) <= 16 else f"{title[:15]}…"
 
         font = QtGui.QFont("Segoe UI", 8 if not is_local else 9, QtGui.QFont.DemiBold)
         painter.setFont(font)
         metrics = QtGui.QFontMetrics(font)
         pad_x = 8
         pad_y = 3
-        text_w = metrics.horizontalAdvance(text)
+        text_w = metrics.horizontalAdvance(name_text)
         text_h = metrics.height()
         w = text_w + (pad_x * 2)
         h = text_h + (pad_y * 2)
+        title_w = 0
+        title_h = 0
+        if title:
+            tfont = QtGui.QFont("Segoe UI", 7, QtGui.QFont.DemiBold)
+            tmetrics = QtGui.QFontMetrics(tfont)
+            title_w = tmetrics.horizontalAdvance(title) + 12
+            title_h = tmetrics.height() + 4
+            w = max(w, title_w)
         rx = x + max(0, (anchor_w - w) // 2)
         # PNG has transparent top padding; anchor label closer to visible head area.
         head_anchor_y = y + int(anchor_h * 0.10)
-        ry = head_anchor_y - h - 1
+        total_h = h + (title_h + 3 if title else 0)
+        ry = head_anchor_y - total_h - 1
 
         bg = QtGui.QColor(21, 42, 66, 190) if is_local else QtGui.QColor(26, 58, 92, 168)
         border = QtGui.QColor(169, 225, 255, 180) if is_local else QtGui.QColor(150, 200, 235, 140)
         fg = QtGui.QColor(245, 251, 255, 240)
+        title_bg = QtGui.QColor(22, 74, 108, 205) if is_local else QtGui.QColor(19, 63, 94, 186)
+        title_border = QtGui.QColor(130, 213, 246, 180) if is_local else QtGui.QColor(125, 193, 232, 145)
+
+        name_y = ry
+        if title:
+            tx = rx + max(0, (w - title_w) // 2)
+            painter.setPen(QtGui.QPen(title_border, 1))
+            painter.setBrush(QtGui.QBrush(title_bg))
+            painter.drawRoundedRect(tx, ry, title_w, title_h, 7, 7)
+            tfont = QtGui.QFont("Segoe UI", 7, QtGui.QFont.DemiBold)
+            tmetrics = QtGui.QFontMetrics(tfont)
+            painter.setFont(tfont)
+            painter.setPen(QtGui.QPen(fg))
+            painter.drawText(tx + 6, ry + 2 + tmetrics.ascent(), title)
+            painter.setFont(font)
+            name_y = ry + title_h + 3
 
         painter.setPen(QtGui.QPen(border, 1))
         painter.setBrush(QtGui.QBrush(bg))
-        painter.drawRoundedRect(rx, ry, w, h, 8, 8)
+        painter.drawRoundedRect(rx, name_y, w, h, 8, 8)
         painter.setPen(QtGui.QPen(fg))
-        painter.drawText(rx + pad_x, ry + pad_y + metrics.ascent(), text)
+        painter.drawText(rx + pad_x, name_y + pad_y + metrics.ascent(), name_text)
+
+    def _stage_from_pearls(self, pearls: int) -> tuple[str, str]:
+        if pearls >= 1000:
+            return "S", "Deepsea Sovereign"
+        if pearls >= 600:
+            return "A", "Abyss Sentinel"
+        if pearls >= 320:
+            return "B", "Focus Navigator"
+        if pearls >= 160:
+            return "C", "Pearl Hunter"
+        if pearls >= 60:
+            return "D", "Reef Explorer"
+        return "E", "Tiny Drifter"
+
+    def _local_stats_from_text(self) -> tuple[int, int, int, str]:
+        energy = int(self._local_profile.get("energy", 0))
+        mood = int(self._local_profile.get("mood", 0))
+        focus = int(self._local_profile.get("focus", 0))
+        mode = str(self._local_profile.get("mode", "unknown"))
+        return energy, mood, focus, mode
+
+    def _title_label(self, title_id: str) -> str:
+        mapping = {
+            "drifter": "Wanderer",
+            "explorer": "Explorer",
+        }
+        return mapping.get(title_id, title_id.title())
+
+    def _bubble_palette(self) -> tuple[str, str]:
+        if self._equipped_bubble_style == "ocean":
+            return (
+                "background: rgba(16,49,75,170); border: 1px solid rgba(120,198,240,170);",
+                "color: rgba(232,248,255,240);",
+            )
+        return ("background: rgba(20,30,45,140); border: 1px solid rgba(120,170,210,110);", "color: rgba(255,255,255,235);")
+
+    def _bubble_colors(self) -> tuple[QtGui.QColor, QtGui.QColor, QtGui.QColor]:
+        if self._equipped_bubble_style == "ocean":
+            return (
+                QtGui.QColor(16, 49, 75, 170),
+                QtGui.QColor(120, 198, 240, 170),
+                QtGui.QColor(232, 248, 255, 240),
+            )
+        return (
+            QtGui.QColor(20, 30, 45, 140),
+            QtGui.QColor(120, 170, 210, 110),
+            QtGui.QColor(255, 255, 255, 235),
+        )
+
+    def _bubble_tail_pixmap(
+        self, width: int, height: int, *, downward: bool, fill: QtGui.QColor, border: QtGui.QColor
+    ) -> QtGui.QPixmap:
+        pm = QtGui.QPixmap(width, height)
+        pm.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(pm)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        poly = QtGui.QPolygonF()
+        if downward:
+            poly.append(QtCore.QPointF(1.0, 1.0))
+            poly.append(QtCore.QPointF(width - 2.0, 1.0))
+            poly.append(QtCore.QPointF(width * 0.5, height - 1.0))
+        else:
+            poly.append(QtCore.QPointF(width * 0.5, 1.0))
+            poly.append(QtCore.QPointF(width - 2.0, height - 2.0))
+            poly.append(QtCore.QPointF(1.0, height - 2.0))
+        painter.setPen(QtGui.QPen(border, 1))
+        painter.setBrush(QtGui.QBrush(fill))
+        painter.drawPolygon(poly)
+        painter.end()
+        return pm
+
+    def _hide_bubble_widgets(self) -> None:
+        self._bubble.hide()
+        self._bubble_tail.hide()
+
+    def _position_bubble_near_mouth(self) -> None:
+        if self._bubble.text() == "" or not self._bubble.isVisible():
+            self._bubble_tail.hide()
+            return
+        facing = self._anim_direction if self._anim_direction in {"left", "right"} else ("right" if self._vx >= 0 else "left")
+        if not self._dugong_frame.isNull():
+            mouth_ratio_x = 0.30 if facing == "left" else 0.70
+            mouth_x = int(self._x + (self._dugong_frame.width() * mouth_ratio_x))
+            mouth_y = int(self._y + (self._dugong_frame.height() * 0.43))
+        else:
+            mouth_x = self.width() // 2
+            mouth_y = int(self.height() * 0.56)
+
+        bubble_w = self._bubble.width()
+        bubble_h = self._bubble.height()
+        # Keep bubble in front of the mouth and higher to avoid name tag overlap.
+        if facing == "left":
+            bubble_x = mouth_x - bubble_w - 34
+        else:
+            bubble_x = mouth_x + 24
+        bubble_y = mouth_y - int(bubble_h * 0.98) - 12
+        if bubble_x < 10:
+            bubble_x = 10
+        if bubble_x + bubble_w > self.width() - 10:
+            bubble_x = self.width() - bubble_w - 10
+
+        # Pure relative placement: keep bubble above mouth, do not auto-flip below.
+        below = False
+        if bubble_y < 0:
+            bubble_y = 0
+        if bubble_y + bubble_h > self.height() - 14:
+            bubble_y = self.height() - bubble_h - 14
+
+        self._bubble.move(bubble_x, bubble_y)
+        self._bubble.raise_()
+
+        fill, border, _fg = self._bubble_colors()
+        tail_w = 14
+        tail_h = 10
+        downward = not below
+        tail_pm = self._bubble_tail_pixmap(tail_w, tail_h, downward=downward, fill=fill, border=border)
+        self._bubble_tail.setPixmap(tail_pm)
+        anchor_x = max(bubble_x + 10, min(bubble_x + bubble_w - 10, mouth_x))
+        tail_x = anchor_x - (tail_w // 2)
+        if downward:
+            tail_y = bubble_y + bubble_h - 1
+        else:
+            tail_y = bubble_y - tail_h + 1
+        self._bubble_tail.setGeometry(tail_x, tail_y, tail_w, tail_h)
+        self._bubble_tail.show()
+        self._bubble_tail.raise_()
+
+    def _hover_target(self) -> tuple[str, str, QtCore.QRect] | None:
+        if self._hover_pos.x() < 0 or self._hover_pos.y() < 0:
+            return None
+
+        # Prioritize peer entities so overlapping local sprite does not block.
+        for source, peer in reversed(sorted(self._peer_entities.items(), key=lambda x: x[0])):
+            pm = self._peer_current_frame.get(source)
+            if pm is None or pm.isNull():
+                continue
+            rect = QtCore.QRect(
+                int(float(peer.get("x", 0.0))),
+                int(float(peer.get("y", 0.0))),
+                pm.width(),
+                pm.height(),
+            )
+            if rect.contains(self._hover_pos):
+                return ("peer", source, rect)
+
+        if not self._dugong_frame.isNull():
+            local_rect = QtCore.QRect(int(self._x), int(self._y), self._dugong_frame.width(), self._dugong_frame.height())
+            if local_rect.contains(self._hover_pos):
+                return ("local", self._local_source, local_rect)
+        return None
+
+    def _draw_hover_card(self, painter: QtGui.QPainter) -> None:
+        target = self._hover_target()
+        if target is None:
+            return
+        kind, source, rect = target
+
+        lines: list[str] = []
+        if kind == "local":
+            energy, mood, focus, mode = self._local_stats_from_text()
+            rank, title = self._stage_from_pearls(self._pearls_total)
+            lines = [
+                f"[{rank}] {title}",
+                f"Name: {source}",
+                f"Title: {self._title_label(self._equipped_title_id)}",
+                f"Mode: {mode}  Pomo: {str(self._local_profile.get('pomo_state', self._pomo_state.lower()))}",
+                f"Mood: {mood}  Energy: {energy}  Focus: {focus}",
+                f"Pearls: {self._pearls_total}  Today: +{self._today_pearls}  Lifetime: {self._lifetime_pearls}",
+                f"Streak: {self._focus_streak}  Day: {self._day_streak}",
+            ]
+        else:
+            peer = self._peer_entities.get(source, {})
+            mode = str(peer.get("mode", "unknown"))
+            phase = str(peer.get("pomo_phase", "")).lower() or "idle"
+            last_seen = float(peer.get("last_seen", time.time()))
+            age = max(0, int(time.time() - last_seen))
+            title = self._title_label(str(peer.get("title_id", "drifter")))
+            lines = [
+                "[ALLY] Co-focus Partner",
+                f"Name: {source}",
+                f"Title: {title}",
+                f"Mode: {mode}  Pomo: {phase}",
+                f"Last seen: {age}s ago",
+                f"Pearls: {int(peer.get('pearls', 0))} (+{int(peer.get('today_pearls', 0))} today)",
+                f"Streak: {int(peer.get('focus_streak', 0))}  Day: {int(peer.get('day_streak', 0))}",
+            ]
+
+        font = QtGui.QFont("Segoe UI", 9, QtGui.QFont.DemiBold)
+        painter.setFont(font)
+        metrics = QtGui.QFontMetrics(font)
+        pad_x = 10
+        pad_y = 8
+        line_h = metrics.height() + 2
+        width = max(metrics.horizontalAdvance(line) for line in lines) + (pad_x * 2)
+        height = (line_h * len(lines)) + (pad_y * 2)
+
+        x = rect.x() + (rect.width() // 2) - (width // 2)
+        y = rect.y() - height - 10
+        if x < 8:
+            x = 8
+        if x + width > self.width() - 8:
+            x = self.width() - width - 8
+        if y < 36:
+            y = rect.bottom() + 10
+        if y + height > self.height() - 8:
+            y = self.height() - height - 8
+
+        bg = QtGui.QColor(14, 30, 48, 228)
+        border = QtGui.QColor(135, 214, 255, 190)
+        title_color = QtGui.QColor(164, 244, 224, 240)
+        text_color = QtGui.QColor(242, 248, 255, 238)
+
+        painter.setPen(QtGui.QPen(border, 1))
+        painter.setBrush(QtGui.QBrush(bg))
+        painter.drawRoundedRect(x, y, width, height, 10, 10)
+
+        for idx, line in enumerate(lines):
+            ly = y + pad_y + ((idx + 1) * line_h) - 4
+            painter.setPen(title_color if idx == 0 else text_color)
+            painter.drawText(x + pad_x, ly, line)
 
     # -------- paint ----------
     def paintEvent(self, _e: QtGui.QPaintEvent) -> None:
@@ -1054,6 +1504,7 @@ class _DugongWindow(QtWidgets.QWidget):
                 is_local=True,
                 anchor_w=self._dugong_frame.width(),
                 anchor_h=self._dugong_frame.height(),
+                title_text=self._title_label(self._equipped_title_id),
             )
 
         if self._floating_rewards:
@@ -1086,6 +1537,7 @@ class _DugongWindow(QtWidgets.QWidget):
             x = int(float(peer.get("x", 0.0)))
             y = int(float(peer.get("y", 0.0)))
             painter.drawPixmap(x, y, pm)
+            peer_title = self._title_label(str(peer.get("title_id", "drifter")))
             self._draw_name_tag(
                 painter,
                 x,
@@ -1094,21 +1546,32 @@ class _DugongWindow(QtWidgets.QWidget):
                 is_local=False,
                 anchor_w=pm.width(),
                 anchor_h=pm.height(),
+                title_text=peer_title,
             )
 
-    # -------- hover bar ----------
+        self._draw_hover_card(painter)
+
+    # -------- hover ----------
     def enterEvent(self, _e: QtCore.QEvent) -> None:
-        self._hide_bar_timer.stop()
-        self._place_bar()
-        self._bar.show()
-        self._bar.raise_()
+        self.update()
 
     def leaveEvent(self, _e: QtCore.QEvent) -> None:
-        self._hide_bar_timer.start(180)
+        self._hover_pos = QtCore.QPoint(-1, -1)
+        self.update()
 
     # -------- drag + click ----------
     def mousePressEvent(self, e: QtGui.QMouseEvent) -> None:
         if e.button() == QtCore.Qt.LeftButton:
+            pos = e.position().toPoint()
+            if self._drawer_open:
+                in_drawer = self._drawer.geometry().contains(pos)
+                in_toggle = self._drawer_toggle.geometry().contains(pos)
+                if not in_drawer and not in_toggle:
+                    self._drawer_open = False
+                    self._drawer_toggle.setText("menu")
+                    self._place_drawer(animated=True)
+                    e.accept()
+                    return
             self._dragging = True
             self._drag_moved = False
             self._press_global = e.globalPosition().toPoint()
@@ -1116,11 +1579,14 @@ class _DugongWindow(QtWidgets.QWidget):
             e.accept()
 
     def mouseMoveEvent(self, e: QtGui.QMouseEvent) -> None:
+        self._hover_pos = e.position().toPoint()
         if self._dragging:
             if (e.globalPosition().toPoint() - self._press_global).manhattanLength() > 4:
                 self._drag_moved = True
             self.move(e.globalPosition().toPoint() - self._drag_offset)
             e.accept()
+            return
+        self.update()
 
     def mouseReleaseEvent(self, e: QtGui.QMouseEvent) -> None:
         if e.button() == QtCore.Qt.LeftButton:
@@ -1134,13 +1600,19 @@ class _DugongWindow(QtWidgets.QWidget):
 
     # -------- controller hooks ----------
     def set_state_text(self, text: str) -> None:
-        self._state.setText(text)
+        self._state_text_raw = text
+        self._state.setText("")
 
+        mode = ""
         m = re.search(r"\[([^\]]+)\]", text)
-        if not m:
+        if m:
+            mode = m.group(1).strip().lower()
+        else:
+            m2 = re.search(r"mode:([a-zA-Z_]+)", text)
+            if m2:
+                mode = m2.group(1).strip().lower()
+        if not mode:
             return
-
-        mode = m.group(1).strip().lower()
         if mode == self._last_mode:
             return
         self._last_mode = mode
@@ -1172,19 +1644,42 @@ class _DugongWindow(QtWidgets.QWidget):
                 self._anim_mode = "idle"
                 self._idle_ticks_left = max(self._idle_ticks_left, 16)
 
-    def set_reward_stats(self, stats: dict[str, int]) -> None:
+    def set_reward_stats(self, stats: dict[str, int | str]) -> None:
         pearls = int(stats.get("pearls", self._pearls_total))
+        lifetime = int(stats.get("lifetime_pearls", self._lifetime_pearls))
+        today = int(stats.get("today_pearls", self._today_pearls))
         focus_streak = int(stats.get("focus_streak", self._focus_streak))
         day_streak = int(stats.get("day_streak", self._day_streak))
+        equipped_skin_id = str(stats.get("equipped_skin_id", self._equipped_skin_id))
+        equipped_bubble_style = str(stats.get("equipped_bubble_style", self._equipped_bubble_style))
+        equipped_title_id = str(stats.get("equipped_title_id", self._equipped_title_id))
+        owned_skins = stats.get("shop_owned_skins", [])
+        owned_bubbles = stats.get("shop_owned_bubbles", [])
+        owned_titles = stats.get("shop_owned_titles", [])
 
         delta = pearls - self._pearls_total
         if delta > 0:
             self._spawn_reward_float(delta)
 
         self._pearls_total = pearls
+        self._lifetime_pearls = lifetime
+        self._today_pearls = today
         self._focus_streak = focus_streak
         self._day_streak = day_streak
-        self._pearl.setText(f"Pearls {pearls}  |  S{focus_streak} D{day_streak}")
+        self._equipped_bubble_style = equipped_bubble_style
+        self._equipped_title_id = equipped_title_id
+        if isinstance(owned_skins, list):
+            self._owned_skins = {str(x).strip().lower() for x in owned_skins if str(x).strip()}
+            self._owned_skins.add("default")
+        if isinstance(owned_bubbles, list):
+            self._owned_bubbles = {str(x).strip().lower() for x in owned_bubbles if str(x).strip()}
+            self._owned_bubbles.add("default")
+        if isinstance(owned_titles, list):
+            self._owned_titles = {str(x).strip().lower() for x in owned_titles if str(x).strip()}
+            self._owned_titles.add("drifter")
+        if equipped_skin_id and equipped_skin_id != self._equipped_skin_id:
+            self._apply_local_skin(equipped_skin_id)
+        self._pearl.setText(f"Pearls {pearls} (+{today} today) | Life {lifetime} | S{focus_streak} D{day_streak}")
         self._layout_overlay()
 
     def _spawn_reward_float(self, gain: int) -> None:
@@ -1218,17 +1713,52 @@ class _DugongWindow(QtWidgets.QWidget):
             alive.append(item)
         self._floating_rewards = alive
 
+    def _apply_local_skin(self, skin_id: str) -> None:
+        sid = (skin_id or "").strip()
+        if not sid:
+            return
+        assets_dir = self._resolve_skin_assets_dir(self._skin_root, sid)
+        try:
+            frames_raw, react_raw = self._load_character_assets(assets_dir)
+        except Exception:
+            return
+        self._skin_id = sid
+        self._equipped_skin_id = sid
+        self._local_skin_assets_dir = assets_dir
+        self._local_frames_raw = frames_raw
+        self._local_react_raw = react_raw
+        self._rebuild_scaled_pixmaps()
+        self._update_frame(force=True)
+        self.update()
+
+    def set_local_profile(self, profile: dict[str, str | int]) -> None:
+        self._local_profile = dict(profile)
+
     def apply_sprite_hint(self, sprite: str) -> None:
         _ = sprite
 
     def show_bubble(self, text: str, ms: int = 2500) -> None:
+        bubble_bg, bubble_fg = self._bubble_palette()
+        self._bubble.setStyleSheet(
+            f"""
+            {bubble_fg}
+            {bubble_bg}
+            border-radius: 10px;
+            padding: 8px 10px;
+            font-size: 13px;
+            """
+        )
         self._bubble.setText(text)
-        self._bubble.adjustSize()
-        bw = min(self.width() - 40, max(220, self._bubble.width()))
+        metrics = QtGui.QFontMetrics(self._bubble.font())
+        content = (text or "").strip() or "..."
+        max_w = min(max(180, int(self.width() * 0.45)), 420)
+        min_w = 96
+        natural_w = metrics.horizontalAdvance(content) + 24
+        bw = max(min_w, min(max_w, natural_w))
         self._bubble.setFixedWidth(bw)
         self._bubble.adjustSize()
-        self._bubble.move((self.width() - self._bubble.width()) // 2, int(self.height() * 0.60))
         self._bubble.show()
+        self._position_bubble_near_mouth()
         self._bubble.raise_()
         life = ms
         lowered = text.lower()
@@ -1284,7 +1814,7 @@ class _DugongWindow(QtWidgets.QWidget):
                 color: white;
                 background: {color};
                 border: none;
-                padding: 5px 10px;
+                padding: 2px 8px;
                 border-radius: 8px;
                 font-weight: 600;
                 font-size: 12px;
@@ -1324,6 +1854,80 @@ class _DugongWindow(QtWidgets.QWidget):
     def _emit_pomo_skip(self) -> None:
         if self._on_pomo_skip is not None:
             self._on_pomo_skip()
+
+    def _emit_shop(self) -> None:
+        menu = QtWidgets.QMenu(self)
+        items = [
+            ("skin", "horse", 120, "Skin: Horse"),
+            ("bubble", "ocean", 80, "Bubble: Ocean"),
+            ("title", "explorer", 60, "Title: Explorer"),
+        ]
+        for kind, item_id, price, label in items:
+            owned = False
+            if kind == "skin":
+                owned = item_id.lower() in self._owned_skins
+            elif kind == "bubble":
+                owned = item_id.lower() in self._owned_bubbles
+            elif kind == "title":
+                owned = item_id.lower() in self._owned_titles
+            equipped = (
+                (kind == "skin" and item_id == self._equipped_skin_id)
+                or (kind == "bubble" and item_id == self._equipped_bubble_style)
+                or (kind == "title" and item_id == self._equipped_title_id)
+            )
+            if equipped:
+                suffix = "(equipped)"
+            elif owned:
+                suffix = "(owned)"
+            else:
+                suffix = f"({price} pearls)"
+            action = menu.addAction(f"{label} {suffix}")
+            action.triggered.connect(
+                lambda _checked=False, k=kind, i=item_id, p=price: self._on_shop_action and self._on_shop_action(k, i, p)
+            )
+        menu.exec(QtGui.QCursor.pos())
+
+    def _emit_wardrobe(self) -> None:
+        menu = QtWidgets.QMenu(self)
+        skin_root = self._skin_root
+        candidates: list[str] = []
+        if skin_root.exists():
+            for p in skin_root.iterdir():
+                if p.is_dir():
+                    sid = p.name.strip()
+                    if sid:
+                        candidates.append(sid)
+        candidates = sorted(set(candidates))
+        if not candidates:
+            action = menu.addAction("No skins found")
+            action.setEnabled(False)
+            menu.exec(QtGui.QCursor.pos())
+            return
+
+        for sid in candidates:
+            pretty = sid.replace("_", " ").title()
+            if sid == "default":
+                price = 0
+            elif sid == "horse":
+                price = 120
+            elif sid == "king":
+                price = 160
+            else:
+                price = 100
+            sid_l = sid.lower()
+            equipped = sid == self._equipped_skin_id
+            owned = sid_l in self._owned_skins
+            if equipped:
+                suffix = "(equipped)"
+            elif owned:
+                suffix = "(owned)"
+            else:
+                suffix = f"({price} pearls)" if price > 0 else "(free)"
+            action = menu.addAction(f"{pretty} {suffix}")
+            action.triggered.connect(
+                lambda _checked=False, item_id=sid, p=price: self._on_shop_action and self._on_shop_action("skin", item_id, p)
+            )
+        menu.exec(QtGui.QCursor.pos())
 
     def _emit_sync(self) -> None:
         if self._on_sync_now is not None:

@@ -124,12 +124,32 @@ Optional env:
 - Reward:
   - valid focus completion grants pearls (`base + streak bonus`)
   - grant is idempotent by `session_id` (replay-safe)
+  - reward now uses non-linear streak tiers:
+    - streak 1-3: `+base`
+    - streak 4-6: `+base+5`
+    - streak 7+: `+base+10`
 - New runtime files:
   - `pomodoro_state.json`
   - `reward_state.json`
 - Synced high-value events:
   - `pomo_start`, `pomo_pause`, `pomo_resume`, `pomo_skip`, `pomo_complete`, `reward_grant`
   - `co_focus_milestone` (when local+remote focus overlap reaches milestone)
+  - `profile_update` (pearl/title/skin/bubble snapshot for remote hover cards)
+
+## Product Layer (game-feel)
+
+- Pearl economy now tracks:
+  - current pearls
+  - today pearls
+  - lifetime pearls
+- Hover card (mouse over Dugong):
+  - local: rank/title + mode/pomo + mood/energy/focus + pearl stats
+  - peer: ally mode/pomo + last-seen
+- Mini shop (MVP):
+  - skin: `horse` (120 pearls)
+  - bubble style: `ocean` (80 pearls)
+  - title: `explorer` (60 pearls)
+  - repeat purchase equips without extra cost
 
 ## Demo script (2 machines)
 

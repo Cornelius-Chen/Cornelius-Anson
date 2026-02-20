@@ -148,3 +148,37 @@ def test_reward_snapshot_restore_carries_cofocus_fields() -> None:
     restored.restore(snap)
     assert restored.cofocus_seconds_total == 123
     assert "a:cofocus:1" in restored.granted_cofocus_milestones
+
+
+def test_reward_tiered_bonus_increases_after_streak_thresholds() -> None:
+    reward = RewardService(base_pearls=10, valid_ratio=0.8)
+    for idx in range(1, 8):
+        g = reward.grant_for_completion(
+            {"phase": "focus", "session_id": f"s{idx}", "completed_s": 100, "duration_s": 100}
+        )
+        assert g is not None
+        if idx <= 3:
+            assert g.pearls == 10
+        elif idx <= 6:
+            assert g.pearls == 15
+        else:
+            assert g.pearls == 20
+    assert reward.lifetime_pearls >= reward.pearls
+    assert reward.today_pearls >= reward.pearls
+
+
+def test_shop_purchase_and_equip_flow() -> None:
+    reward = RewardService(base_pearls=10, valid_ratio=0.8)
+    reward.pearls = 200
+    reward.lifetime_pearls = 200
+    reward.today_pearls = 200
+
+    ok, reason = reward.buy_shop_item("title", "explorer", 60)
+    assert ok and reason == "purchased"
+    assert reward.equipped_title_id == "explorer"
+    assert reward.pearls == 140
+
+    # Re-buy should become free equip path.
+    ok2, reason2 = reward.buy_shop_item("title", "explorer", 60)
+    assert ok2 and reason2 == "equipped"
+    assert reward.pearls == 140

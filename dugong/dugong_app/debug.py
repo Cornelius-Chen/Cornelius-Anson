@@ -146,10 +146,15 @@ def _collect_pomo_payload() -> dict:
         },
         "reward": {
             "pearls": int(reward.get("pearls", 0)),
+            "lifetime_pearls": int(reward.get("lifetime_pearls", 0)),
+            "today_pearls": int(reward.get("today_pearls", 0)),
             "focus_streak": int(reward.get("focus_streak", 0)),
             "day_streak": int(reward.get("day_streak", 0)),
             "last_focus_day": reward.get("last_focus_day", ""),
             "cofocus_seconds_total": int(reward.get("cofocus_seconds_total", 0)),
+            "equipped_skin_id": reward.get("equipped_skin_id", "default"),
+            "equipped_bubble_style": reward.get("equipped_bubble_style", "default"),
+            "equipped_title_id": reward.get("equipped_title_id", "drifter"),
             "granted_cofocus_milestones_count": len(reward.get("granted_cofocus_milestones", []))
             if isinstance(reward.get("granted_cofocus_milestones", []), list)
             else 0,

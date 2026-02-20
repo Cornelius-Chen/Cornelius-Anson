@@ -148,3 +148,30 @@ def co_focus_milestone_event(
         },
         source=source,
     )
+
+
+def profile_update_event(
+    pearls: int,
+    today_pearls: int,
+    lifetime_pearls: int,
+    focus_streak: int,
+    day_streak: int,
+    title_id: str,
+    skin_id: str,
+    bubble_style: str,
+    source: str = "dugong_app",
+) -> DugongEvent:
+    return DugongEvent(
+        event_type="profile_update",
+        payload={
+            "pearls": int(pearls),
+            "today_pearls": int(today_pearls),
+            "lifetime_pearls": int(lifetime_pearls),
+            "focus_streak": int(focus_streak),
+            "day_streak": int(day_streak),
+            "title_id": str(title_id),
+            "skin_id": str(skin_id),
+            "bubble_style": str(bubble_style),
+        },
+        source=source,
+    )
