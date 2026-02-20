@@ -735,8 +735,8 @@ class _DugongWindow(QtWidgets.QWidget):
             sg = screen.availableGeometry()
             if self._compact_mode:
                 self.move(
-                    max(sg.left(), sg.right() - self.width() - 10),
-                    max(sg.top(), sg.bottom() - self.height() - 10),
+                    max(sg.left(), sg.left() + 10),
+                    max(sg.top(), sg.top() + 10),
                 )
             else:
                 cx = old_geo.x() + (old_geo.width() // 2)
