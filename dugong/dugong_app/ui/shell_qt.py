@@ -168,6 +168,17 @@ class _DugongWindow(QtWidgets.QWidget):
         self._floating_rewards: list[dict[str, float | str]] = []
         self._shop_dialog: QtWidgets.QDialog | None = None
         self._shop_hint_label: QtWidgets.QLabel | None = None
+        self._shop_scale = 0.5
+        self._shop_manual_pos: QtCore.QPoint | None = None
+        self._shop_edge_hold_ms = 220
+        self._shop_edge_pressing = False
+        self._shop_edge_drag_ready = False
+        self._shop_edge_dragging = False
+        self._shop_drag_offset = QtCore.QPoint(0, 0)
+        self._shop_drag_dlg: QtWidgets.QDialog | None = None
+        self._shop_edge_hold_timer = QtCore.QTimer(self)
+        self._shop_edge_hold_timer.setSingleShot(True)
+        self._shop_edge_hold_timer.timeout.connect(self._enable_shop_edge_drag)
         self._did_initial_center = False
 
         self._dugong_frame = QtGui.QPixmap()
@@ -2043,10 +2054,14 @@ class _DugongWindow(QtWidgets.QWidget):
         if dlg is None or not dlg.isVisible():
             return
 
-        fg = self.frameGeometry()
-        x = fg.left() + (fg.width() - dlg.width()) // 2
-        # Lift shop upward relative to the app center.
-        y = fg.top() + (fg.height() - dlg.height()) // 2 - max(20, int(self.height() * 0.09))
+        if self._shop_manual_pos is not None:
+            x = int(self._shop_manual_pos.x())
+            y = int(self._shop_manual_pos.y())
+        else:
+            fg = self.frameGeometry()
+            x = fg.left() + (fg.width() - dlg.width()) // 2
+            # Lift shop upward relative to the app center.
+            y = fg.top() + (fg.height() - dlg.height()) // 2 - max(20, int(self.height() * 0.09))
 
         screen = self.screen() or QtGui.QGuiApplication.primaryScreen()
         if screen is not None:
@@ -2054,6 +2069,8 @@ class _DugongWindow(QtWidgets.QWidget):
             x = max(sg.left(), min(x, sg.right() - dlg.width() + 1))
             y = max(sg.top(), min(y, sg.bottom() - dlg.height() + 1))
         dlg.move(x, y)
+        if self._shop_manual_pos is not None:
+            self._shop_manual_pos = QtCore.QPoint(x, y)
         dlg.raise_()
 
     def _open_shop_dialog(self) -> None:
@@ -2085,6 +2102,9 @@ class _DugongWindow(QtWidgets.QWidget):
         else:
             target_h = min(520, max(320, int(self.height() * 1.45)))
             max_w = max(640, int(self.width() * 0.72))
+        shop_scale = self._shop_scale
+        target_h = max(180, int(target_h * shop_scale))
+        max_w = max(260, int(max_w * shop_scale))
         bg = bg_src.scaledToHeight(target_h, QtCore.Qt.SmoothTransformation)
         if bg.width() > max_w:
             bg = bg.scaledToWidth(max_w, QtCore.Qt.SmoothTransformation)
@@ -2097,6 +2117,12 @@ class _DugongWindow(QtWidgets.QWidget):
         bg_label = QtWidgets.QLabel(root)
         bg_label.setGeometry(0, 0, dlg.width(), dlg.height())
         bg_label.setPixmap(bg)
+        bg_label.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+
+        dlg.setProperty("shop_drag_surface", True)
+        root.setProperty("shop_drag_surface", True)
+        dlg.installEventFilter(self)
+        root.installEventFilter(self)
 
         hint = QtWidgets.QLabel("", root)
         hint.setGeometry(int(dlg.width() * 0.24), int(dlg.height() * 0.84), int(dlg.width() * 0.52), 30)
@@ -2181,25 +2207,78 @@ class _DugongWindow(QtWidgets.QWidget):
         close_btn.raise_()
         close_btn.clicked.connect(dlg.close)
 
+        def adjust_shop_scale(delta: float) -> None:
+            new_scale = max(0.35, min(1.20, round(self._shop_scale + delta, 2)))
+            if abs(new_scale - self._shop_scale) < 0.001:
+                return
+            self._shop_scale = new_scale
+            dlg.close()
+            QtCore.QTimer.singleShot(0, self._open_shop_dialog)
+
+        zoom_out_btn = QtWidgets.QPushButton("-", root)
+        zoom_out_btn.setGeometry(12, 12, 30, 30)
+        zoom_out_btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        zoom_out_btn.setStyleSheet(
+            """
+            QPushButton {
+                color: rgba(248,253,255,248);
+                background: rgba(10,34,58,235);
+                border: 1px solid rgba(150,210,240,205);
+                border-radius: 9px;
+                font-size: 16px;
+                font-weight: 900;
+            }
+            QPushButton:hover {
+                background: rgba(22,52,82,240);
+            }
+            """
+        )
+        zoom_out_btn.clicked.connect(lambda _checked=False: adjust_shop_scale(-0.1))
+        zoom_out_btn.raise_()
+
+        zoom_in_btn = QtWidgets.QPushButton("+", root)
+        zoom_in_btn.setGeometry(46, 12, 30, 30)
+        zoom_in_btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        zoom_in_btn.setStyleSheet(
+            """
+            QPushButton {
+                color: rgba(248,253,255,248);
+                background: rgba(10,34,58,235);
+                border: 1px solid rgba(150,210,240,205);
+                border-radius: 9px;
+                font-size: 16px;
+                font-weight: 900;
+            }
+            QPushButton:hover {
+                background: rgba(22,52,82,240);
+            }
+            """
+        )
+        zoom_in_btn.clicked.connect(lambda _checked=False: adjust_shop_scale(0.1))
+        zoom_in_btn.raise_()
+
         # Main target: left wooden shelf for skins (image cards)
         skin_items = [
-            ("default", 0, "Default"),
-            ("horse", 120, "Horse"),
             ("king", 160, "King"),
+            ("horse", 120, "Horse"),
         ]
-        skin_y = [int(dlg.height() * 0.228), int(dlg.height() * 0.372), int(dlg.height() * 0.505)]
+        # King on the left, horse on the right, and both enlarged x2.
+        skin_rects = [
+            QtCore.QRect(int(dlg.width() * 0.148), int(dlg.height() * 0.618), int(dlg.width() * 0.416), int(dlg.height() * 0.192)),  # king
+            QtCore.QRect(int(dlg.width() * 0.148), int(dlg.height() * 0.322), int(dlg.width() * 0.416), int(dlg.height() * 0.192)),  # horse (raised one body higher)
+        ]
         for idx, (sid, price, label) in enumerate(skin_items):
             suffix = self._item_state_suffix("skin", sid, price)
             hover_text = f"皮肤 {label} | {suffix}"
-            rect = QtCore.QRect(int(dlg.width() * 0.242), skin_y[idx], int(dlg.width() * 0.246), int(dlg.height() * 0.183))
-            icon = self._shop_skin_preview(sid, QtCore.QSize(rect.width() - 8, rect.height() - 8))
+            rect = skin_rects[idx]
+            icon = self._shop_skin_preview(sid, QtCore.QSize(rect.width() - 4, rect.height() - 2))
 
             def on_skin_click(_checked: bool = False, item_id: str = sid, p: int = price) -> None:
                 if self._on_shop_action:
                     self._on_shop_action("skin", item_id, p)
                 dlg.close()
 
-            mk_item_btn(icon, rect, hover_text, on_skin_click, hit_expand_w=16, hit_expand_h=10)
+            mk_item_btn(icon, rect, hover_text, on_skin_click, hit_expand_w=14, hit_expand_h=8)
 
         # Right pearl seats reserved for title/badge icons.
         badge_items = [
@@ -2220,6 +2299,24 @@ class _DugongWindow(QtWidgets.QWidget):
 
             mk_item_btn(icon, rect, hover_text, on_title_click, hit_expand_w=14, hit_expand_h=10)
 
+            badge_tag = QtWidgets.QLabel(f"{label} · {suffix}", root)
+            badge_tag.setGeometry(rect.x() - 8, rect.bottom() - 4, rect.width() + 16, 20)
+            badge_tag.setAlignment(QtCore.Qt.AlignCenter)
+            badge_tag.setStyleSheet(
+                """
+                QLabel {
+                    color: rgba(240,250,255,240);
+                    background: rgba(18,48,74,175);
+                    border: 1px solid rgba(128,198,234,150);
+                    border-radius: 8px;
+                    font-size: 11px;
+                    font-weight: 700;
+                    padding: 1px 6px;
+                }
+                """
+            )
+            badge_tag.raise_()
+
         dlg.destroyed.connect(lambda _obj=None: setattr(self, "_shop_dialog", None))
         dlg.show()
         self._position_shop_dialog()
@@ -2228,6 +2325,38 @@ class _DugongWindow(QtWidgets.QWidget):
         self._shop_dialog = dlg
 
     def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:
+        if watched.property("shop_drag_surface"):
+            dlg = watched if isinstance(watched, QtWidgets.QDialog) else self._shop_dialog
+            if isinstance(dlg, QtWidgets.QDialog):
+                if event.type() == QtCore.QEvent.MouseButtonPress and isinstance(event, QtGui.QMouseEvent):
+                    if event.button() == QtCore.Qt.LeftButton and self._is_shop_edge_press(dlg, event.position().toPoint()):
+                        self._shop_edge_pressing = True
+                        self._shop_edge_drag_ready = False
+                        self._shop_edge_dragging = False
+                        self._shop_drag_dlg = dlg
+                        self._shop_drag_offset = event.globalPosition().toPoint() - dlg.frameGeometry().topLeft()
+                        self._shop_edge_hold_timer.start(self._shop_edge_hold_ms)
+                        return True
+                elif event.type() == QtCore.QEvent.MouseMove and isinstance(event, QtGui.QMouseEvent):
+                    if self._shop_edge_pressing and self._shop_edge_drag_ready and (event.buttons() & QtCore.Qt.LeftButton):
+                        self._shop_edge_dragging = True
+                        self._move_shop_dialog_to(event.globalPosition().toPoint())
+                        return True
+                    if self._shop_edge_pressing and not self._shop_edge_drag_ready:
+                        if (event.globalPosition().toPoint() - (dlg.frameGeometry().topLeft() + self._shop_drag_offset)).manhattanLength() > 8:
+                            self._shop_edge_hold_timer.stop()
+                            self._shop_edge_pressing = False
+                elif event.type() == QtCore.QEvent.MouseButtonRelease and isinstance(event, QtGui.QMouseEvent):
+                    if event.button() == QtCore.Qt.LeftButton and self._shop_edge_pressing:
+                        self._shop_edge_hold_timer.stop()
+                        handled = self._shop_edge_dragging
+                        self._shop_edge_pressing = False
+                        self._shop_edge_drag_ready = False
+                        self._shop_edge_dragging = False
+                        self._shop_drag_dlg = None
+                        if handled:
+                            return True
+
         if self._shop_hint_label is not None:
             info = watched.property("shop_info") if watched is not None else None
             if isinstance(info, str) and info:
@@ -2237,6 +2366,33 @@ class _DugongWindow(QtWidgets.QWidget):
                 elif event.type() == QtCore.QEvent.Leave:
                     self._shop_hint_label.hide()
         return super().eventFilter(watched, event)
+
+    def _is_shop_edge_press(self, dlg: QtWidgets.QDialog, pos: QtCore.QPoint) -> bool:
+        margin = max(12, min(28, int(min(dlg.width(), dlg.height()) * 0.08)))
+        return (
+            pos.x() <= margin
+            or pos.x() >= dlg.width() - margin
+            or pos.y() <= margin
+            or pos.y() >= dlg.height() - margin
+        )
+
+    def _enable_shop_edge_drag(self) -> None:
+        if self._shop_edge_pressing:
+            self._shop_edge_drag_ready = True
+
+    def _move_shop_dialog_to(self, global_pos: QtCore.QPoint) -> None:
+        dlg = self._shop_drag_dlg or self._shop_dialog
+        if dlg is None:
+            return
+        pos = global_pos - self._shop_drag_offset
+        screen = self.screen() or QtGui.QGuiApplication.primaryScreen()
+        if screen is not None:
+            sg = screen.availableGeometry()
+            x = max(sg.left(), min(pos.x(), sg.right() - dlg.width() + 1))
+            y = max(sg.top(), min(pos.y(), sg.bottom() - dlg.height() + 1))
+            pos = QtCore.QPoint(x, y)
+        dlg.move(pos)
+        self._shop_manual_pos = QtCore.QPoint(pos)
 
     def _emit_wardrobe(self) -> None:
         menu = QtWidgets.QMenu(self)

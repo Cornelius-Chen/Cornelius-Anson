@@ -143,3 +143,92 @@
   - `DugongShell.run()`
 - Notes:
   - 当前 `update_view(sprite, ...)` 已不再使用 `sprite` 参数驱动渲染，角色显示由本地帧动画主导。
+
+## 2026-02-20 22:00:36
+- Scope: Shop 皮肤位微调到左侧木架 + 徽章最小可见 UI 补齐。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 皮肤区保持第一版透明点击风格（无大卡片遮挡），仅调整三张皮肤坐标到左侧三层木架上。
+  - 新增 `skin_rects` 三组锚点，按背景图木架位置做精细定位。
+  - 徽章区保留原点击图标位，同时新增 `badge_tag`（名称 + 状态/价格）可视标签，解决“徽章没有对应 UI”问题。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:05:29
+- Scope: Shop 皮肤位终版微调（按要求去掉 default、horse 在 king 左侧、整体缩小约 50%）。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 皮肤上架项从 3 个改为 2 个：仅保留 `horse`、`king`（移除 `default`）。
+  - 皮肤坐标改为同一层并排：`horse` 在 `king` 正左侧。
+  - 皮肤点击区域和图标尺寸缩小到上一版约 50%。
+  - 徽章区图标与标签尺寸同步缩小约 50%，并微调位置，保持整体比例一致。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:08:10
+- Scope: Shop 整体等比例缩小（背景 + 皮肤 + 徽章一起 0.5），避免只缩局部元素。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 在 `_open_shop_dialog()` 增加统一缩放系数 `shop_scale = 0.5`，对 shop 背景尺寸（`target_h/max_w`）整体生效。
+  - 保留 `horse/king` 同层并排（horse 在 king 左侧），并恢复皮肤/徽章元素到与背景同尺度的相对比例，避免“二次缩小”。
+  - 徽章标签尺寸与样式恢复为常规比例，以匹配缩小后的整体 shop 画面。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:10:04
+- Scope: Shop 皮肤位最终微调（king 在 horse 左侧，king/horse UI 放大 2 倍）。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 皮肤顺序改为 `king`（左）→ `horse`（右）。
+  - 两个皮肤点击/显示矩形统一放大到当前版本的 2 倍。
+  - 其余 shop 缩放与徽章布局保持不变。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:11:55
+- Scope: Shop 皮肤位微调（horse 移到 king 正上方架子）。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 保持 king 位置不变。
+  - horse 改为与 king 同一 x 轴，y 上移到上一层架子位置。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:16:22
+- Scope: Dugong Shop 左上角新增放大/缩小按钮（整体缩放）。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 新增 `self._shop_scale`（默认 `0.5`）作为 shop 统一缩放系数。
+  - `_open_shop_dialog()` 使用 `self._shop_scale` 控制背景尺寸，所有元素随背景一起缩放。
+  - 在 shop 左上角新增 `-` / `+` 按钮：
+    - `-` 每次缩小 `0.1`
+    - `+` 每次放大 `0.1`
+    - 缩放范围限制为 `0.35 ~ 1.20`
+  - 点击缩放按钮后自动关闭并重开 shop，应用新比例。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:19:48
+- Scope: Dugong Shop 增加“长按边缘拖动”交互。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 新增 shop 拖动状态机：按住 shop 边缘约 `220ms` 后进入拖动模式。
+  - 仅边缘触发拖动（中间内容区不触发），避免影响商品点击。
+  - 拖动后记录手动位置 `self._shop_manual_pos`，主窗口移动时不再强制吸回中心。
+  - 拖动位置带屏幕边界钳制，防止商店窗口拖出可视区域。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
