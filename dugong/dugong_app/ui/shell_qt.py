@@ -928,6 +928,7 @@ class _DugongWindow(QtWidgets.QWidget):
             peer["day_streak"] = int(entity.get("day_streak", peer.get("day_streak", 0)))
             peer["title_id"] = str(entity.get("title_id", peer.get("title_id", "drifter")))
             peer["bubble_style"] = str(entity.get("bubble_style", peer.get("bubble_style", "default")))
+            peer["online"] = float(entity.get("online", peer.get("online", 1.0)))
 
             # Trigger remote reaction on every new remote event id (not only mode changes).
             if peer["last_event_id"] and peer["last_event_id"] != prev_event_id:
@@ -1553,13 +1554,15 @@ class _DugongWindow(QtWidgets.QWidget):
             phase = str(peer.get("pomo_phase", "")).lower() or "idle"
             last_seen = float(peer.get("last_seen", time.time()))
             age = max(0, int(time.time() - last_seen))
+            online = float(peer.get("online", 1.0)) > 0.0
             title = self._title_label(str(peer.get("title_id", "drifter")))
+            status_line = "Status: online" if online else f"Last seen: {age}s ago"
             lines = [
                 "[ALLY] Co-focus Partner",
                 f"Name: {source}",
                 f"Title: {title}",
                 f"Mode: {mode}  Pomo: {phase}",
-                f"Last seen: {age}s ago",
+                status_line,
                 f"Pearls: {int(peer.get('pearls', 0))} (+{int(peer.get('today_pearls', 0))} today)",
                 f"Streak: {int(peer.get('focus_streak', 0))}  Day: {int(peer.get('day_streak', 0))}",
             ]
