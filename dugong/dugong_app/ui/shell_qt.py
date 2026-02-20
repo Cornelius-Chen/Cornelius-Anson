@@ -2016,6 +2016,27 @@ class _DugongWindow(QtWidgets.QWidget):
         return QtGui.QPixmap()
 
     def _shop_badge_preview(self, title_id: str, size: QtCore.QSize) -> QtGui.QPixmap:
+        badge_dir = self._assets_root / "badge"
+        title_l = (title_id or "").strip().lower()
+        alias = {"drifter": "wanderer"}.get(title_l, title_l)
+        candidates = [
+            badge_dir / f"{title_id}.png",
+            badge_dir / f"{title_id}.PNG",
+            badge_dir / f"{title_l}.png",
+            badge_dir / f"{title_l}.PNG",
+            badge_dir / f"{title_l.capitalize()}.png",
+            badge_dir / f"{title_l.capitalize()}.PNG",
+            badge_dir / f"{alias}.png",
+            badge_dir / f"{alias}.PNG",
+            badge_dir / f"{alias.capitalize()}.png",
+            badge_dir / f"{alias.capitalize()}.PNG",
+        ]
+        for path in candidates:
+            if path.exists() and path.is_file():
+                pm = QtGui.QPixmap(str(path))
+                if not pm.isNull():
+                    return pm.scaled(size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+
         pm = QtGui.QPixmap(size)
         pm.fill(QtCore.Qt.transparent)
         painter = QtGui.QPainter(pm)
@@ -2301,24 +2322,6 @@ class _DugongWindow(QtWidgets.QWidget):
                 dlg.close()
 
             mk_item_btn(icon, rect, hover_text, on_title_click, hit_expand_w=14, hit_expand_h=10)
-
-            badge_tag = QtWidgets.QLabel(f"{label} · {suffix}", root)
-            badge_tag.setGeometry(rect.x() - 8, rect.bottom() - 4, rect.width() + 16, 20)
-            badge_tag.setAlignment(QtCore.Qt.AlignCenter)
-            badge_tag.setStyleSheet(
-                """
-                QLabel {
-                    color: rgba(240,250,255,240);
-                    background: rgba(18,48,74,175);
-                    border: 1px solid rgba(128,198,234,150);
-                    border-radius: 8px;
-                    font-size: 11px;
-                    font-weight: 700;
-                    padding: 1px 6px;
-                }
-                """
-            )
-            badge_tag.raise_()
 
         dlg.destroyed.connect(lambda _obj=None: setattr(self, "_shop_dialog", None))
         dlg.show()

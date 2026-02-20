@@ -232,3 +232,36 @@
   - 拖动位置带屏幕边界钳制，防止商店窗口拖出可视区域。
 - Validation:
   - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:37:08
+- Scope: 用 assets 里的徽章 UI 替换 shop 中 Explorer/Wanderer 按钮占位图。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - `_shop_badge_preview()` 现在优先从 `dugong/dugong_app/ui/assets/badge/` 加载徽章图片。
+  - 支持大小写文件名匹配（如 `Explorer.PNG`、`wanderer.PNG`）。
+  - 若资源缺失，才回退到原有圆形字母占位图。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:39:02
+- Scope: 修复 shop 中 Wanderer 徽章图未加载问题。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - `_shop_badge_preview()` 增加别名映射：`drifter -> wanderer`。
+  - 现在 `title_id=drifter` 的商店项会正确命中 `assets/badge/wanderer.PNG`。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:40:56
+- Scope: 去掉 shop 两个徽章 UI 下方文字栏。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 删除徽章项下方 `badge_tag` 标签绘制，仅保留徽章图片和点击逻辑。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
