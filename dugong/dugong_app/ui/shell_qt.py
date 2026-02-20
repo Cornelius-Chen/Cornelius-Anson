@@ -5,12 +5,18 @@ import json
 import math
 import random
 import re
+import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
+try:
+    from PySide6 import QtMultimedia
+except Exception:
+    QtMultimedia = None
 
 
 class DugongShell:
@@ -135,6 +141,12 @@ class _DugongWindow(QtWidgets.QWidget):
 
         self._assets_root = Path(__file__).resolve().parent / "assets"
         self._skin_root = self._assets_root / "dugong_skin"
+        self._is_muted = False
+        self._mode_sound_players: dict[str, object] = {}
+        self._mode_audio_outputs: dict[str, object] = {}
+        self._mode_sound_files: dict[str, Path] = {}
+        self._mode_sound_play_paths: dict[str, Path] = {}
+        self._init_mode_sounds()
         self._skin_id = self._resolve_skin_id(self._local_source, skin_id)
         self._local_skin_assets_dir = self._resolve_skin_assets_dir(self._skin_root, self._skin_id)
         self._peer_skin_assets_dir = self._resolve_skin_assets_dir(self._skin_root, "default")
@@ -428,7 +440,8 @@ class _DugongWindow(QtWidgets.QWidget):
                 mk_btn("sync", "#6b4f1f", self._emit_sync),
             ]
         )
-        system_page = mk_page([mk_btn("quit", "#6a2c2c", self._emit_quit)])
+        self._mute_btn = mk_btn("mute: off", "#4f4f4f", self._toggle_mute)
+        system_page = mk_page([self._mute_btn, mk_btn("quit", "#6a2c2c", self._emit_quit)])
 
         self._drawer_tabs.addTab(modes_page, "M")
         self._drawer_tabs.addTab(economy_page, "E")
@@ -457,6 +470,118 @@ class _DugongWindow(QtWidgets.QWidget):
         self._update_frame(force=True)
 
     # -------- assets ----------
+    def _init_mode_sounds(self) -> None:
+        sound_dir = self._assets_root / "sound"
+        mode_to_file = {
+            "study": "skeleton.mp3",
+            "chill": "pvz.mp3",
+            "rest": "mc.mp3",
+        }
+        for mode, filename in mode_to_file.items():
+            path = sound_dir / filename
+            if not path.exists():
+                continue
+            self._mode_sound_files[mode] = path
+            if QtMultimedia is None:
+                continue
+            try:
+                audio = QtMultimedia.QAudioOutput(self)
+                audio.setVolume(0.85)
+                audio.setMuted(self._is_muted)
+                player = QtMultimedia.QMediaPlayer(self)
+                player.setAudioOutput(audio)
+                player.setSource(QtCore.QUrl.fromLocalFile(str(path)))
+                self._mode_audio_outputs[mode] = audio
+                self._mode_sound_players[mode] = player
+            except Exception:
+                continue
+
+    def _play_mode_sound(self, mode: str) -> None:
+        if self._is_muted:
+            return
+        player = self._mode_sound_players.get(mode)
+        if player is not None:
+            try:
+                player.setPosition(0)
+                player.play()
+                return
+            except Exception:
+                pass
+        sound_path = self._mode_sound_files.get(mode)
+        if sound_path is not None:
+            self._play_mode_sound_fallback(sound_path)
+
+    def _play_mode_sound_fallback(self, sound_path: Path) -> None:
+        if not sound_path.exists():
+            return
+        try:
+            if sys.platform == "darwin":
+                play_path = self._mac_playable_path(sound_path)
+                subprocess.Popen(["afplay", str(play_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            if sys.platform.startswith("win"):
+                escaped = str(sound_path).replace("\\", "\\\\").replace("'", "''")
+                ps = (
+                    "Add-Type -AssemblyName presentationCore; "
+                    "$p = New-Object System.Windows.Media.MediaPlayer; "
+                    f"$p.Open([Uri]'{escaped}'); "
+                    "$p.Volume = 1.0; "
+                    "$p.Play(); "
+                    "Start-Sleep -Milliseconds 3000; "
+                    "$p.Close();"
+                )
+                subprocess.Popen(
+                    ["powershell", "-NoProfile", "-Command", ps],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+        except Exception:
+            pass
+
+    def _mac_playable_path(self, sound_path: Path) -> Path:
+        key = str(sound_path.resolve())
+        cached = self._mode_sound_play_paths.get(key)
+        if cached is not None and cached.exists():
+            return cached
+        if sound_path.suffix.lower() != ".mp3":
+            self._mode_sound_play_paths[key] = sound_path
+            return sound_path
+        try:
+            tmp_dir = Path(tempfile.gettempdir()) / "dugong_sound_cache"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            play_path = tmp_dir / f"{sound_path.stem}.m4a"
+            play_path.write_bytes(sound_path.read_bytes())
+            self._mode_sound_play_paths[key] = play_path
+            return play_path
+        except Exception:
+            self._mode_sound_play_paths[key] = sound_path
+            return sound_path
+
+    def _toggle_mute(self) -> None:
+        self._is_muted = not self._is_muted
+        for audio in self._mode_audio_outputs.values():
+            try:
+                audio.setMuted(self._is_muted)
+            except Exception:
+                continue
+        label = "mute: on" if self._is_muted else "mute: off"
+        color = "#6a2c2c" if self._is_muted else "#4f4f4f"
+        self._mute_btn.setText(label)
+        self._mute_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                color: white;
+                background: {color};
+                border: none;
+                padding: 2px 8px;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 12px;
+            }}
+            """
+        )
+
     def _resolve_skin_id(self, source_id: str, requested_skin_id: str) -> str:
         requested = (requested_skin_id or "").strip()
         if requested and requested.lower() != "auto":
@@ -1340,7 +1465,9 @@ class _DugongWindow(QtWidgets.QWidget):
             title = self._title_label(self._equipped_title_id)
         title = title if len(title) <= 16 else f"{title[:15]}…"
 
-        font = QtGui.QFont("Segoe UI", 8 if not is_local else 9, QtGui.QFont.DemiBold)
+        font = QtGui.QFont()
+        font.setPointSize(8 if not is_local else 9)
+        font.setWeight(QtGui.QFont.DemiBold)
         painter.setFont(font)
         metrics = QtGui.QFontMetrics(font)
         pad_x = 8
@@ -1352,7 +1479,9 @@ class _DugongWindow(QtWidgets.QWidget):
         title_w = 0
         title_h = 0
         if title:
-            tfont = QtGui.QFont("Segoe UI", 7, QtGui.QFont.DemiBold)
+            tfont = QtGui.QFont()
+            tfont.setPointSize(7)
+            tfont.setWeight(QtGui.QFont.DemiBold)
             tmetrics = QtGui.QFontMetrics(tfont)
             title_w = tmetrics.horizontalAdvance(title) + 12
             title_h = tmetrics.height() + 4
@@ -1376,7 +1505,9 @@ class _DugongWindow(QtWidgets.QWidget):
             painter.setPen(QtGui.QPen(title_border, 1))
             painter.setBrush(QtGui.QBrush(title_bg))
             painter.drawRoundedRect(tx, ry, title_w, title_h, 7, 7)
-            tfont = QtGui.QFont("Segoe UI", 7, QtGui.QFont.DemiBold)
+            tfont = QtGui.QFont()
+            tfont.setPointSize(7)
+            tfont.setWeight(QtGui.QFont.DemiBold)
             tmetrics = QtGui.QFontMetrics(tfont)
             painter.setFont(tfont)
             painter.setPen(QtGui.QPen(fg))
@@ -1578,7 +1709,9 @@ class _DugongWindow(QtWidgets.QWidget):
                 f"Streak: {int(peer.get('focus_streak', 0))}  Day: {int(peer.get('day_streak', 0))}",
             ]
 
-        font = QtGui.QFont("Segoe UI", 9, QtGui.QFont.DemiBold)
+        font = QtGui.QFont()
+        font.setPointSize(9)
+        font.setWeight(QtGui.QFont.DemiBold)
         painter.setFont(font)
         metrics = QtGui.QFontMetrics(font)
         pad_x = 10
@@ -1641,7 +1774,9 @@ class _DugongWindow(QtWidgets.QWidget):
             )
 
         if self._floating_rewards:
-            font = QtGui.QFont("Segoe UI", 10, QtGui.QFont.DemiBold)
+            font = QtGui.QFont()
+            font.setPointSize(10)
+            font.setWeight(QtGui.QFont.DemiBold)
             painter.setFont(font)
             for item in self._floating_rewards:
                 life = max(0.0, min(1.0, float(item.get("life", 0.0)) / 1.4))
@@ -1973,6 +2108,7 @@ class _DugongWindow(QtWidgets.QWidget):
 
     def _emit_mode(self, mode: str) -> None:
         # Keep a short deterministic action clip when user clicks mode buttons.
+        self._play_mode_sound(mode)
         if mode == "study":
             self._trigger_react("study", ms=2000)
         elif mode == "chill":
@@ -2049,7 +2185,9 @@ class _DugongWindow(QtWidgets.QWidget):
         painter.drawEllipse(2, 2, size.width() - 4, size.height() - 4)
         label = self._title_label(title_id)
         letter = (label[:1] or "?").upper()
-        font = QtGui.QFont("Segoe UI", max(9, int(size.height() * 0.38)), QtGui.QFont.Bold)
+        font = QtGui.QFont()
+        font.setPointSize(max(9, int(size.height() * 0.38)))
+        font.setWeight(QtGui.QFont.Bold)
         painter.setFont(font)
         painter.setPen(fg)
         painter.drawText(pm.rect(), QtCore.Qt.AlignCenter, letter)
