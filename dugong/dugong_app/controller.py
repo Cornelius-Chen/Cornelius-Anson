@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import queue
 import threading
@@ -328,9 +328,26 @@ class DugongController:
 
     def _update_remote_presence(self, events) -> None:
         now = time.time()
+        interval = float(getattr(self, "sync_interval_seconds", 10))
+        online_ttl = max(30.0, interval * 3)
+        stale_cutoff = now - online_ttl
         for ev in events:
             source = (getattr(ev, "source", "") or "").strip()
             if not source or source == self.source_id:
+                continue
+            # Use event timestamp as the source of truth for presence.
+            # Ignore stale history events so offline peers are not "revived".
+            seen_at = now
+            raw_ts = str(getattr(ev, "timestamp", "") or "").strip()
+            if raw_ts:
+                try:
+                    parsed = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    seen_at = parsed.timestamp()
+                except ValueError:
+                    seen_at = now
+            if seen_at < stale_cutoff:
                 continue
 
             entry = self._remote_presence.setdefault(
@@ -353,7 +370,10 @@ class DugongController:
                     "bubble_style": "default",
                 },
             )
-            entry["last_seen"] = now
+            if seen_at < float(entry.get("last_seen", 0.0)):
+                # Out-of-order old event: do not roll back presence view.
+                continue
+            entry["last_seen"] = seen_at
             entry["event_type"] = ev.event_type
             entry["event_id"] = str(getattr(ev, "event_id", "") or "")
 
@@ -687,9 +707,9 @@ class DugongController:
         self.bus.emit(mode_change_event(mode, source=self.source_id))
         self._request_fast_sync()
         mode_bubble = {
-            "study": "📘 进入专注模式",
-            "chill": "🌊 进入放松模式",
-            "rest": "🌙 进入休息模式",
+            "study": "进入专注模式",
+            "chill": "进入放松模式",
+            "rest": "进入休息模式",
         }.get(mode, f"切换模式: {mode}")
         self.refresh(bubble=mode_bubble)
 

@@ -175,3 +175,4 @@ def profile_update_event(
         },
         source=source,
     )
+

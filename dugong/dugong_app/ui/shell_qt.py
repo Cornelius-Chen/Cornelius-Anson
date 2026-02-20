@@ -120,6 +120,8 @@ class _DugongWindow(QtWidgets.QWidget):
         self.setMouseTracking(True)
 
         self._target_height = 260
+        self._compact_mode = False
+        self._compact_width = 420
         self._apply_screen_width()
 
         self._dragging = False
@@ -256,6 +258,8 @@ class _DugongWindow(QtWidgets.QWidget):
         self._drawer_anim = QtCore.QPropertyAnimation(self._drawer, b"geometry", self)
         self._drawer_anim.setDuration(180)
         self._drawer_anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
+        self._drawer_anim.finished.connect(self._on_drawer_anim_finished)
+        self._drawer.hide()
 
         self._drawer_toggle = QtWidgets.QPushButton("menu", self)
         self._drawer_toggle.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
@@ -290,6 +294,23 @@ class _DugongWindow(QtWidgets.QWidget):
             """
         )
         self._quit_top.clicked.connect(self._emit_quit)
+
+        self._size_mode_top = QtWidgets.QPushButton("小", self)
+        self._size_mode_top.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self._size_mode_top.setFixedSize(24, 24)
+        self._size_mode_top.setStyleSheet(
+            """
+            QPushButton {
+                color: rgba(245,250,255,240);
+                background: rgba(32,52,74,215);
+                border: 1px solid rgba(150,190,230,140);
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            """
+        )
+        self._size_mode_top.clicked.connect(self._toggle_size_mode)
 
         def mk_btn(
             text: str,
@@ -572,7 +593,16 @@ class _DugongWindow(QtWidgets.QWidget):
             self.resize(900, self._target_height)
             return
         geo = screen.availableGeometry()
-        self.resize(max(900, geo.width()), self._target_height)
+        if self._compact_mode:
+            # Small-window mode: keep it close to character-card size, not full-width strip.
+            width = max(340, min(self._compact_width, int(geo.width() * 0.72)))
+        else:
+            width = max(900, geo.width())
+        self.resize(width, self._target_height)
+        if self.x() < geo.left():
+            self.move(geo.left(), self.y())
+        if self.x() + self.width() > geo.right():
+            self.move(max(geo.left(), geo.right() - self.width()), self.y())
 
     def _scale_and_pad(self, frames: list[QtGui.QPixmap], target_h: int) -> list[QtGui.QPixmap]:
         scaled = [
@@ -657,23 +687,79 @@ class _DugongWindow(QtWidgets.QWidget):
             self._peer_set_skin(peer, skin_id, target_h)
 
     def _layout_overlay(self) -> None:
-        self._title.setGeometry(0, 8, self.width(), 26)
-        pearl_w = max(170, min(320, self._pearl.sizeHint().width() + 16))
         self._quit_top.move(8, 8)
         self._quit_top.raise_()
-        self._pearl.setGeometry(38, 10, pearl_w, 22)
-        chip_w = max(170, min(280, self._pomo.sizeHint().width() + 16))
-        x = self.width() - chip_w - 14
-        self._pomo.setGeometry(x, 10, chip_w, 22)
-        self._focus_strip.adjustSize()
-        focus_w = self._focus_strip.sizeHint().width() + 2
-        focus_h = self._focus_strip.height()
-        focus_x = max(14, x - focus_w - 8)
-        focus_y = max(6, self._pomo.y() - 4)
-        self._focus_strip.setGeometry(focus_x, focus_y, focus_w, focus_h)
+        self._size_mode_top.move(36, 8)
+        self._size_mode_top.raise_()
 
-        self._drawer_toggle.setFixedSize(62, 28)
+        if self._compact_mode:
+            self._title.hide()
+            chip_w = max(138, min(190, self._pomo.sizeHint().width() + 10))
+            self._pomo.setGeometry(self.width() - chip_w - 8, 8, chip_w, 22)
+
+            self._focus_strip.adjustSize()
+            focus_w = self._focus_strip.sizeHint().width() + 2
+            focus_h = self._focus_strip.height()
+            focus_x = self.width() - focus_w - 8
+            focus_y = self._pomo.y() + self._pomo.height() + 4
+            self._focus_strip.setGeometry(focus_x, focus_y, focus_w, focus_h)
+
+            pearl_w = max(170, min(self.width() - 16, self._pearl.sizeHint().width() + 12))
+            self._pearl.setGeometry(8, self.height() - 30, pearl_w, 22)
+            self._drawer_toggle.setFixedSize(56, 24)
+        else:
+            self._title.show()
+            self._title.setGeometry(0, 8, self.width(), 26)
+            pearl_w = max(170, min(320, self._pearl.sizeHint().width() + 16))
+            self._pearl.setGeometry(66, 10, pearl_w, 22)
+            chip_w = max(170, min(280, self._pomo.sizeHint().width() + 16))
+            x = self.width() - chip_w - 14
+            self._pomo.setGeometry(x, 10, chip_w, 22)
+            self._focus_strip.adjustSize()
+            focus_w = self._focus_strip.sizeHint().width() + 2
+            focus_h = self._focus_strip.height()
+            focus_x = max(14, x - focus_w - 8)
+            focus_y = max(6, self._pomo.y() - 4)
+            self._focus_strip.setGeometry(focus_x, focus_y, focus_w, focus_h)
+            self._drawer_toggle.setFixedSize(62, 28)
+
         self._place_drawer(animated=False)
+
+    def _toggle_size_mode(self) -> None:
+        self._compact_mode = not self._compact_mode
+        self._size_mode_top.setText("大" if self._compact_mode else "小")
+        screen = QtGui.QGuiApplication.primaryScreen()
+        old_geo = self.geometry()
+        self._apply_screen_width()
+        if screen is not None:
+            sg = screen.availableGeometry()
+            if self._compact_mode:
+                self.move(
+                    max(sg.left(), sg.right() - self.width() - 10),
+                    max(sg.top(), sg.bottom() - self.height() - 10),
+                )
+            else:
+                cx = old_geo.x() + (old_geo.width() // 2)
+                nx = cx - (self.width() // 2)
+                nx = max(sg.left(), min(sg.right() - self.width(), nx))
+                ny = max(sg.top(), min(sg.bottom() - self.height(), self.y()))
+                self.move(nx, ny)
+        self._rebuild_scaled_pixmaps()
+        self._update_pearl_text()
+        self._layout_overlay()
+        self._reset_dugong_position()
+        self._update_frame(force=True)
+        self.update()
+
+    def _update_pearl_text(self) -> None:
+        if self._compact_mode:
+            self._pearl.setText(
+                f"P {self._pearls_total}  +{self._today_pearls}  L {self._lifetime_pearls}  S{self._focus_streak} D{self._day_streak}"
+            )
+        else:
+            self._pearl.setText(
+                f"Pearls {self._pearls_total} (+{self._today_pearls} today) | Life {self._lifetime_pearls} | S{self._focus_streak} D{self._day_streak}"
+            )
 
     def _drawer_closed_rect(self) -> QtCore.QRect:
         margin = 10
@@ -703,6 +789,10 @@ class _DugongWindow(QtWidgets.QWidget):
             toggle_y = self.height() - th - 10
         self._drawer_toggle.setGeometry(toggle_x, toggle_y, tw, th)
 
+        if self._drawer_open:
+            if self._drawer.isHidden():
+                self._drawer.setGeometry(self._drawer_closed_rect())
+            self._drawer.show()
         self._drawer.raise_()
         self._drawer_toggle.raise_()
         if animated:
@@ -711,6 +801,12 @@ class _DugongWindow(QtWidgets.QWidget):
             self._drawer_anim.start()
         else:
             self._drawer.setGeometry(target)
+            if not self._drawer_open:
+                self._drawer.hide()
+
+    def _on_drawer_anim_finished(self) -> None:
+        if not self._drawer_open:
+            self._drawer.hide()
 
     def _toggle_drawer(self) -> None:
         self._drawer_open = not self._drawer_open
@@ -1217,8 +1313,8 @@ class _DugongWindow(QtWidgets.QWidget):
         pad_y = 3
         text_w = metrics.horizontalAdvance(name_text)
         text_h = metrics.height()
-        w = text_w + (pad_x * 2)
-        h = text_h + (pad_y * 2)
+        name_w = text_w + (pad_x * 2)
+        name_h = text_h + (pad_y * 2)
         title_w = 0
         title_h = 0
         if title:
@@ -1226,11 +1322,11 @@ class _DugongWindow(QtWidgets.QWidget):
             tmetrics = QtGui.QFontMetrics(tfont)
             title_w = tmetrics.horizontalAdvance(title) + 12
             title_h = tmetrics.height() + 4
-            w = max(w, title_w)
-        rx = x + max(0, (anchor_w - w) // 2)
+        total_w = max(name_w, title_w) if title else name_w
+        center_x = x + (anchor_w // 2)
         # PNG has transparent top padding; anchor label closer to visible head area.
         head_anchor_y = y + int(anchor_h * 0.10)
-        total_h = h + (title_h + 3 if title else 0)
+        total_h = name_h + (title_h + 3 if title else 0)
         ry = head_anchor_y - total_h - 1
 
         bg = QtGui.QColor(21, 42, 66, 190) if is_local else QtGui.QColor(26, 58, 92, 168)
@@ -1240,8 +1336,9 @@ class _DugongWindow(QtWidgets.QWidget):
         title_border = QtGui.QColor(130, 213, 246, 180) if is_local else QtGui.QColor(125, 193, 232, 145)
 
         name_y = ry
+        name_x = center_x - (name_w // 2)
         if title:
-            tx = rx + max(0, (w - title_w) // 2)
+            tx = center_x - (title_w // 2)
             painter.setPen(QtGui.QPen(title_border, 1))
             painter.setBrush(QtGui.QBrush(title_bg))
             painter.drawRoundedRect(tx, ry, title_w, title_h, 7, 7)
@@ -1255,9 +1352,9 @@ class _DugongWindow(QtWidgets.QWidget):
 
         painter.setPen(QtGui.QPen(border, 1))
         painter.setBrush(QtGui.QBrush(bg))
-        painter.drawRoundedRect(rx, name_y, w, h, 8, 8)
+        painter.drawRoundedRect(name_x, name_y, name_w, name_h, 8, 8)
         painter.setPen(QtGui.QPen(fg))
-        painter.drawText(rx + pad_x, name_y + pad_y + metrics.ascent(), name_text)
+        painter.drawText(name_x + pad_x, name_y + pad_y + metrics.ascent(), name_text)
 
     def _stage_from_pearls(self, pearls: int) -> tuple[str, str]:
         if pearls >= 1000:
@@ -1622,7 +1719,23 @@ class _DugongWindow(QtWidgets.QWidget):
             self._idle_ticks_left = max(self._idle_ticks_left, 30)
 
     def set_pomo_text(self, text: str) -> None:
-        self._pomo.setText(text)
+        if self._compact_mode:
+            upper = (text or "").upper()
+            mmss = ""
+            m = re.search(r"(\d{2}:\d{2})", upper)
+            if m:
+                mmss = m.group(1)
+            if "PAUSED" in upper or "PAUSE" in upper:
+                compact = f"PAUSE {mmss}".strip()
+            elif "FOCUS" in upper:
+                compact = f"FOCUS {mmss}".strip()
+            elif "BREAK" in upper:
+                compact = f"BREAK {mmss}".strip()
+            else:
+                compact = "POMO IDLE"
+            self._pomo.setText(compact)
+        else:
+            self._pomo.setText(text)
         self._layout_overlay()
 
     def set_pomo_state(self, state: str) -> None:
@@ -1679,7 +1792,7 @@ class _DugongWindow(QtWidgets.QWidget):
             self._owned_titles.add("drifter")
         if equipped_skin_id and equipped_skin_id != self._equipped_skin_id:
             self._apply_local_skin(equipped_skin_id)
-        self._pearl.setText(f"Pearls {pearls} (+{today} today) | Life {lifetime} | S{focus_streak} D{day_streak}")
+        self._update_pearl_text()
         self._layout_overlay()
 
     def _spawn_reward_float(self, gain: int) -> None:
