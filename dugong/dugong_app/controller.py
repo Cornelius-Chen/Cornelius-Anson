@@ -527,6 +527,7 @@ class DugongController:
                 "title_id": str(info.get("title_id", "drifter")),
                 "skin_id": str(info.get("skin_id", "default")),
                 "bubble_style": str(info.get("bubble_style", "default")),
+                "online": float(info.get("online", 1.0)),
                 "is_local": 0.0,
             }
             for src, info in self._remote_presence.items()
@@ -546,6 +547,7 @@ class DugongController:
             "title_id": str(self.reward.equipped_title_id),
             "skin_id": str(self.reward.equipped_skin_id),
             "bubble_style": str(self.reward.equipped_bubble_style),
+            "online": 1.0,
             "is_local": 1.0,
         }
         return [local, *remote]
@@ -1059,7 +1061,6 @@ class DugongController:
                 source=self.source_id,
             )
         )
-        self._publish_presence_file(online=True, reason="heartbeat")
         self._request_fast_sync()
 
     def on_quit_requested(self) -> None:
@@ -1079,7 +1080,6 @@ class DugongController:
                 source=self.source_id,
             )
         )
-        self._publish_presence_file(online=True, reason="startup")
         self._emit_profile_update()
         self._request_fast_sync()
         self.refresh(bubble=f"Dugong online [{self.source_id}]")
