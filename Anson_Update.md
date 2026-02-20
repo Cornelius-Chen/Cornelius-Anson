@@ -265,3 +265,47 @@
   - 删除徽章项下方 `badge_tag` 标签绘制，仅保留徽章图片和点击逻辑。
 - Validation:
   - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:56:20
+- Scope: 模式点击音效 + 功能栏静音开关。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 新增模式音效映射（`assets/sound`）：
+    - `study` -> `skeleton.mp3`
+    - `chill` -> `pvz.mp3`
+    - `rest` -> `mc.mp3`
+  - `_emit_mode()` 触发时增加 `_play_mode_sound(mode)`。
+  - `S` 页功能栏新增 `mute` 按钮（`mute: off/on`），可切换静音。
+  - 静音状态会同步到所有模式音频输出。
+  - 若 `QtMultimedia` 不可用，自动静默降级（不影响 UI 其他功能）。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 22:58:55
+- Scope: 修复模式按钮点击无声音问题（QtMultimedia 缺失环境兜底）。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 根因：当前运行环境无 `PySide6.QtMultimedia`，原音频播放路径被静默跳过。
+  - 新增 `self._mode_sound_files` 缓存音频路径，始终记录可用 mp3 文件。
+  - `_play_mode_sound()` 优先走 QtMultimedia；不可用时自动走系统播放器兜底：
+    - macOS: `afplay`
+    - Windows: PowerShell `System.Windows.Media.MediaPlayer`
+  - 仍保留 `mute` 开关，静音时不触发任何播放。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
+
+## 2026-02-20 23:02:01
+- Scope: 修复字体别名告警 + mac 音频 `dta?/fmt?` 报错。
+- Files:
+  - dugong/dugong_app/ui/shell_qt.py
+  - Anson_Update.md
+- Changes:
+  - 去除所有硬编码字体族 `Segoe UI`，改为 `QtGui.QFont()` 系统默认字体并设置 size/weight，消除 `missing font family` 告警。
+  - mac 音频兜底增强：对 `.mp3` 音频先生成临时 `.m4a` 播放路径（你的文件实际是 MP4 容器），再交给 `afplay`。
+  - `afplay`/Windows PowerShell 播放进程改为 `stdout/stderr` 静默，避免终端刷错误文本。
+- Validation:
+  - `cd dugong && python -m pytest -q` -> `46 passed`
