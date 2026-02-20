@@ -11,6 +11,8 @@ class FileTransport(TransportBase):
         self.shared_dir = Path(shared_dir)
         self.source_id = source_id
         self.source_file = self.shared_dir / f"{self.source_id}.jsonl"
+        self.presence_dir = self.shared_dir / "presence"
+        self.presence_file = self.presence_dir / f"{self.source_id}.json"
 
     def send(self, payload: dict) -> None:
         self.shared_dir.mkdir(parents=True, exist_ok=True)
@@ -46,3 +48,22 @@ class FileTransport(TransportBase):
                     continue
             next_cursors[file_key] = len(lines)
         return payloads, next_cursors
+
+    def update_presence(self, presence: dict) -> None:
+        self.presence_dir.mkdir(parents=True, exist_ok=True)
+        self.presence_file.write_text(json.dumps(presence, ensure_ascii=True), encoding="utf-8")
+
+    def receive_presence(self) -> list[dict]:
+        if not self.presence_dir.exists():
+            return []
+        payloads: list[dict] = []
+        for file_path in sorted(self.presence_dir.glob("*.json")):
+            if file_path == self.presence_file:
+                continue
+            try:
+                data = json.loads(file_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(data, dict):
+                payloads.append(data)
+        return payloads

@@ -25,6 +25,8 @@ class GithubTransport(TransportBase):
         self.branch = branch
         self.folder = folder.strip("/").replace("\\", "/")
         self.source_file = f"{self.source_id}.jsonl"
+        self.presence_folder = "presence"
+        self.presence_file = f"{self.source_id}.json"
 
     def send(self, payload: dict) -> None:
         line = json.dumps(payload, ensure_ascii=True)
@@ -64,6 +66,9 @@ class GithubTransport(TransportBase):
 
     def _path(self, filename: str) -> str:
         return str(PurePosixPath(self.folder) / filename)
+
+    def _presence_path(self, filename: str) -> str:
+        return str(PurePosixPath(self.folder) / self.presence_folder / filename)
 
     def _base_url(self, path: str) -> str:
         encoded_path = quote(path, safe="/")
@@ -111,6 +116,23 @@ class GithubTransport(TransportBase):
                 names.append(entry["name"])
         return names
 
+    def _list_remote_presence_files(self) -> list[str]:
+        path = str(PurePosixPath(self.folder) / self.presence_folder)
+        url = f"{self._base_url(path)}?ref={quote(self.branch)}"
+        status, payload, resp_headers = self._api_request("GET", url)
+        if status == 404:
+            return []
+        if status >= 400:
+            raise RuntimeError(self._format_http_error("github list presence failed", status, resp_headers))
+        if not isinstance(payload, list):
+            return []
+
+        names: list[str] = []
+        for entry in payload:
+            if isinstance(entry, dict) and entry.get("type") == "file" and isinstance(entry.get("name"), str):
+                names.append(entry["name"])
+        return names
+
     def _read_remote_file(self, path: str) -> tuple[str, str | None]:
         url = f"{self._base_url(path)}?ref={quote(self.branch)}"
         status, payload, resp_headers = self._api_request("GET", url)
@@ -145,3 +167,28 @@ class GithubTransport(TransportBase):
         if reset:
             return f"{prefix}: status=429 rate_limit_reset={reset}"
         return f"{prefix}: status=429"
+
+    def update_presence(self, presence: dict) -> None:
+        text = json.dumps(presence, ensure_ascii=True, separators=(",", ":"))
+        path = self._presence_path(self.presence_file)
+        _existing_text, sha = self._read_remote_file(path)
+        self._write_remote_file(path=path, text=text, sha=sha, message=f"sync({self.source_id}): presence")
+
+    def receive_presence(self) -> list[dict]:
+        payloads: list[dict] = []
+        for name in self._list_remote_presence_files():
+            if not name.endswith(".json"):
+                continue
+            if name == self.presence_file:
+                continue
+            path = self._presence_path(name)
+            text, _sha = self._read_remote_file(path)
+            if not text.strip():
+                continue
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict):
+                payloads.append(data)
+        return payloads

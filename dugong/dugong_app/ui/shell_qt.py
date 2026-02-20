@@ -24,6 +24,7 @@ class DugongShell:
         on_pomo_pause_resume: Callable[[], None] | None = None,
         on_pomo_skip: Callable[[], None] | None = None,
         on_shop_action: Callable[[str, str, int], None] | None = None,
+        on_quit: Callable[[], None] | None = None,
         source_id: str = "local",
         skin_id: str = "default",
     ) -> None:
@@ -37,6 +38,7 @@ class DugongShell:
             on_pomo_pause_resume,
             on_pomo_skip,
             on_shop_action,
+            on_quit,
             source_id=source_id,
             skin_id=skin_id,
         )
@@ -93,6 +95,7 @@ class _DugongWindow(QtWidgets.QWidget):
         on_pomo_pause_resume: Callable[[], None] | None,
         on_pomo_skip: Callable[[], None] | None,
         on_shop_action: Callable[[str, str, int], None] | None,
+        on_quit: Callable[[], None] | None,
         source_id: str = "local",
         skin_id: str = "default",
     ) -> None:
@@ -105,6 +108,7 @@ class _DugongWindow(QtWidgets.QWidget):
         self._on_pomo_pause_resume = on_pomo_pause_resume
         self._on_pomo_skip = on_pomo_skip
         self._on_shop_action = on_shop_action
+        self._on_quit = on_quit
         self._timers: list[QtCore.QTimer] = []
         self._local_source = source_id or "local"
         self._peer_entities: dict[str, dict[str, float | str]] = {}
@@ -2281,6 +2285,11 @@ class _DugongWindow(QtWidgets.QWidget):
             self._on_sync_now()
 
     def _emit_quit(self) -> None:
+        if self._on_quit is not None:
+            try:
+                self._on_quit()
+            except Exception:
+                pass
         self.close()
         app = QtWidgets.QApplication.instance()
         if app is not None:

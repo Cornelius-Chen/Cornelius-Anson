@@ -176,3 +176,39 @@ def profile_update_event(
         source=source,
     )
 
+
+def presence_hello_event(mode: str, instance_id: str, source: str = "dugong_app") -> DugongEvent:
+    return DugongEvent(
+        event_type="presence_hello",
+        payload={
+            "mode": str(mode),
+            "instance_id": str(instance_id),
+            "online": True,
+        },
+        source=source,
+    )
+
+
+def presence_heartbeat_event(mode: str, pomo_phase: str, instance_id: str, source: str = "dugong_app") -> DugongEvent:
+    return DugongEvent(
+        event_type="presence_heartbeat",
+        payload={
+            "mode": str(mode),
+            "pomo_phase": str(pomo_phase),
+            "instance_id": str(instance_id),
+            "online": True,
+        },
+        source=source,
+    )
+
+
+def presence_bye_event(reason: str, instance_id: str, source: str = "dugong_app") -> DugongEvent:
+    return DugongEvent(
+        event_type="presence_bye",
+        payload={
+            "reason": str(reason),
+            "instance_id": str(instance_id),
+            "online": False,
+        },
+        source=source,
+    )

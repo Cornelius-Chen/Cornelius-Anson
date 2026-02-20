@@ -5,6 +5,7 @@ import threading
 import time
 from pathlib import Path
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from dugong_app.config import DugongConfig
 from dugong_app.core.event_bus import EventBus
@@ -15,6 +16,9 @@ from dugong_app.core.events import (
     manual_ping_event,
     mode_change_event,
     profile_update_event,
+    presence_bye_event,
+    presence_heartbeat_event,
+    presence_hello_event,
     pomo_complete_event,
     pomo_pause_event,
     pomo_resume_event,
@@ -65,6 +69,10 @@ class DugongController:
         self._last_pomo_render_key: tuple[str, str, int] | None = None
         self._cofocus_last_monotonic = time.monotonic()
         self._cofocus_seconds = 0.0
+        self._instance_id = uuid4().hex[:10]
+        self._presence_heartbeat_seconds = 15
+        self._presence_offline_ttl_seconds = max(90.0, float(self.sync_interval_seconds * 10))
+        self._presence_last_heartbeat_monotonic = 0.0
 
         self.journal = EventJournal(
             config.data_dir / "event_journal.jsonl",
@@ -165,6 +173,7 @@ class DugongController:
                 on_pomo_pause_resume=self.on_pomo_pause_resume,
                 on_pomo_skip=self.on_pomo_skip,
                 on_shop_action=self.on_shop_action,
+                on_quit=self.on_quit_requested,
                 source_id=self.source_id,
                 skin_id=self.config.skin_id,
             )
@@ -210,6 +219,11 @@ class DugongController:
             status = "fail"
         if self.sync_status == "auth_missing" and status == "disabled":
             status = "auth_missing"
+        self._publish_presence_file(
+            online=(event.event_type != "presence_bye"),
+            reason="event",
+            last_event_id=str(getattr(event, "event_id", "") or ""),
+        )
 
         self._results.put({"kind": "local_done", "status": status, "pushed_count": pushed_count})
         self._maybe_rebuild_derived(force=False)
@@ -218,6 +232,15 @@ class DugongController:
         result = self.sync_engine.sync_once(force=manual)
         imported = int(result.get("imported", 0))
         received = len(result.get("events", [])) if isinstance(result.get("events", []), list) else 0
+        presence: list[dict] = []
+        transport = self.sync_engine.transport
+        if transport is not None and hasattr(transport, "receive_presence"):
+            try:
+                raw_presence = transport.receive_presence()
+                if isinstance(raw_presence, list):
+                    presence = [p for p in raw_presence if isinstance(p, dict)]
+            except Exception:
+                presence = []
         if imported > 0:
             self._derived_dirty = True
             self._maybe_rebuild_derived(force=True)
@@ -228,6 +251,7 @@ class DugongController:
                 "imported": imported,
                 "events": result.get("events", []),
                 "received": received,
+                "presence": presence,
                 "manual": manual,
             }
         )
@@ -302,6 +326,8 @@ class DugongController:
         best_rank = -1
         for ev in events:
             rank = priority.get(ev.event_type, 0)
+            if rank <= 0:
+                continue
             if rank >= best_rank:
                 best = ev
                 best_rank = rank
@@ -328,15 +354,13 @@ class DugongController:
 
     def _update_remote_presence(self, events) -> None:
         now = time.time()
-        interval = float(getattr(self, "sync_interval_seconds", 10))
-        online_ttl = max(30.0, interval * 3)
-        stale_cutoff = now - online_ttl
         for ev in events:
             source = (getattr(ev, "source", "") or "").strip()
             if not source or source == self.source_id:
                 continue
             # Use event timestamp as the source of truth for presence.
-            # Ignore stale history events so offline peers are not "revived".
+            # Listener mode: once a peer is seen, keep it visible unless we later
+            # introduce an explicit offline signal.
             seen_at = now
             raw_ts = str(getattr(ev, "timestamp", "") or "").strip()
             if raw_ts:
@@ -347,8 +371,6 @@ class DugongController:
                     seen_at = parsed.timestamp()
                 except ValueError:
                     seen_at = now
-            if seen_at < stale_cutoff:
-                continue
 
             entry = self._remote_presence.setdefault(
                 source,
@@ -368,22 +390,39 @@ class DugongController:
                     "title_id": "drifter",
                     "skin_id": "default",
                     "bubble_style": "default",
+                    "online": 1.0,
+                    "heartbeat_at": 0.0,
+                    "instance_id": "",
                 },
             )
             if seen_at < float(entry.get("last_seen", 0.0)):
                 # Out-of-order old event: do not roll back presence view.
                 continue
             entry["last_seen"] = seen_at
+            entry["heartbeat_at"] = seen_at
             entry["event_type"] = ev.event_type
             entry["event_id"] = str(getattr(ev, "event_id", "") or "")
 
             if ev.event_type == "mode_change":
+                entry["online"] = 1.0
                 entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
             elif ev.event_type == "state_tick":
+                entry["online"] = 1.0
                 entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
             elif ev.event_type == "presence_hello":
+                entry["online"] = 1.0
                 entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
+                entry["instance_id"] = str(ev.payload.get("instance_id", entry.get("instance_id", "")))
+            elif ev.event_type == "presence_heartbeat":
+                entry["online"] = 1.0
+                entry["mode"] = str(ev.payload.get("mode", entry.get("mode", "unknown")))
+                entry["pomo_phase"] = str(ev.payload.get("pomo_phase", entry.get("pomo_phase", "")))
+                entry["instance_id"] = str(ev.payload.get("instance_id", entry.get("instance_id", "")))
+            elif ev.event_type == "presence_bye":
+                entry["online"] = 0.0
+                entry["instance_id"] = str(ev.payload.get("instance_id", entry.get("instance_id", "")))
             elif ev.event_type in {"pomo_start", "pomo_resume"}:
+                entry["online"] = 1.0
                 phase = str(ev.payload.get("phase", "")).lower()
                 entry["pomo_phase"] = phase
                 entry["pomo_session_id"] = str(ev.payload.get("session_id", ""))
@@ -392,10 +431,12 @@ class DugongController:
                 elif phase == "break":
                     entry["mode"] = "chill"
             elif ev.event_type in {"pomo_pause", "pomo_complete", "pomo_skip"}:
+                entry["online"] = 1.0
                 phase = str(ev.payload.get("phase", ev.payload.get("from_phase", ""))).lower()
                 if phase == "focus":
                     entry["pomo_phase"] = ""
             elif ev.event_type == "profile_update":
+                entry["online"] = 1.0
                 entry["pearls"] = int(ev.payload.get("pearls", entry.get("pearls", 0)))
                 entry["today_pearls"] = int(ev.payload.get("today_pearls", entry.get("today_pearls", 0)))
                 entry["lifetime_pearls"] = int(ev.payload.get("lifetime_pearls", entry.get("lifetime_pearls", 0)))
@@ -405,11 +446,71 @@ class DugongController:
                 entry["skin_id"] = str(ev.payload.get("skin_id", entry.get("skin_id", "default")))
                 entry["bubble_style"] = str(ev.payload.get("bubble_style", entry.get("bubble_style", "default")))
 
+    def _update_remote_presence_files(self, snapshots: list[dict]) -> None:
+        for snap in snapshots:
+            source = str(snap.get("source_id", "")).strip()
+            if not source or source == self.source_id:
+                continue
+            entry = self._remote_presence.setdefault(
+                source,
+                {
+                    "source": source,
+                    "mode": "unknown",
+                    "last_seen": 0.0,
+                    "event_type": "presence_snapshot",
+                    "event_id": "",
+                    "pomo_phase": "",
+                    "pomo_session_id": "",
+                    "pearls": 0,
+                    "today_pearls": 0,
+                    "lifetime_pearls": 0,
+                    "focus_streak": 0,
+                    "day_streak": 0,
+                    "title_id": "drifter",
+                    "skin_id": "default",
+                    "bubble_style": "default",
+                    "online": 1.0,
+                    "heartbeat_at": 0.0,
+                    "instance_id": "",
+                },
+            )
+            hb_ts = str(snap.get("last_heartbeat", "")).strip()
+            hb = float(entry.get("heartbeat_at", 0.0))
+            if hb_ts:
+                try:
+                    parsed = datetime.fromisoformat(hb_ts.replace("Z", "+00:00"))
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    hb = parsed.timestamp()
+                except ValueError:
+                    pass
+            entry["heartbeat_at"] = hb
+            entry["last_seen"] = max(float(entry.get("last_seen", 0.0)), hb)
+            entry["online"] = 1.0 if bool(snap.get("online", True)) else 0.0
+            entry["instance_id"] = str(snap.get("instance_id", entry.get("instance_id", "")))
+            entry["mode"] = str(snap.get("mode", entry.get("mode", "unknown")))
+            entry["pomo_phase"] = str(snap.get("pomo_phase", entry.get("pomo_phase", "")))
+            entry["event_type"] = "presence_snapshot"
+            entry["title_id"] = str(snap.get("title_id", entry.get("title_id", "drifter")))
+            entry["skin_id"] = str(snap.get("skin_id", entry.get("skin_id", "default")))
+            entry["bubble_style"] = str(snap.get("bubble_style", entry.get("bubble_style", "default")))
+            entry["pearls"] = int(snap.get("pearls", entry.get("pearls", 0)))
+            entry["today_pearls"] = int(snap.get("today_pearls", entry.get("today_pearls", 0)))
+            entry["lifetime_pearls"] = int(snap.get("lifetime_pearls", entry.get("lifetime_pearls", 0)))
+            entry["focus_streak"] = int(snap.get("focus_streak", entry.get("focus_streak", 0)))
+            entry["day_streak"] = int(snap.get("day_streak", entry.get("day_streak", 0)))
+
+    def _is_remote_online(self, info: dict[str, str | float], now: float | None = None) -> bool:
+        if float(info.get("online", 1.0)) <= 0.0:
+            return False
+        ts = max(float(info.get("heartbeat_at", 0.0)), float(info.get("last_seen", 0.0)))
+        if ts <= 0:
+            return True
+        now_ts = now if now is not None else time.time()
+        return (now_ts - ts) <= self._presence_offline_ttl_seconds
+
     def _shared_entities(self) -> list[dict[str, str | float]]:
         now = time.time()
-        # Online presence TTL: if no remote events arrive within this window,
-        # treat peer as offline and hide it from the shared aquarium.
-        ttl_seconds = max(30.0, float(self.sync_interval_seconds * 3))
         remote = [
             {
                 "source": src,
@@ -429,7 +530,7 @@ class DugongController:
                 "is_local": 0.0,
             }
             for src, info in self._remote_presence.items()
-            if (now - float(info.get("last_seen", 0.0))) <= ttl_seconds
+            if self._is_remote_online(info, now)
         ]
         remote.sort(key=lambda x: str(x["source"]))
         local = {
@@ -490,6 +591,7 @@ class DugongController:
                 imported = int(result.get("imported", 0))
                 events = result.get("events", [])
                 received = int(result.get("received", 0))
+                presence = result.get("presence", [])
                 manual = bool(result.get("manual", False))
                 self._update_auto_sync_policy(status=self.sync_status, imported=imported, manual=manual)
                 self._health["last_pull_at"] = datetime.now(tz=timezone.utc).isoformat()
@@ -518,9 +620,12 @@ class DugongController:
                     bubble = self.sync_status
                 elif self.sync_status == "fail":
                     bubble = "Sync failed"
-                elif imported > 0:
+                elif received > 0 or (isinstance(presence, list) and len(presence) > 0):
                     self._update_remote_presence(events)
-                    self.unread_remote_count += self._signal_event_count(events)
+                    if isinstance(presence, list) and presence:
+                        self._update_remote_presence_files(presence)
+                    if imported > 0:
+                        self.unread_remote_count += self._signal_event_count(events)
                     representative = self._pick_representative_remote_event(events)
                     if representative is not None:
                         bubble = self._remote_bubble(representative)
@@ -554,14 +659,43 @@ class DugongController:
 
     def _active_remote_focus_peers(self) -> int:
         now = time.time()
-        ttl = max(20.0, float(self.sync_interval_seconds * 3))
         count = 0
         for info in self._remote_presence.values():
-            if (now - float(info.get("last_seen", 0.0))) > ttl:
+            if not self._is_remote_online(info, now):
                 continue
             if str(info.get("pomo_phase", "")).lower() == "focus":
                 count += 1
         return count
+
+    def _presence_snapshot(self, online: bool, reason: str = "", last_event_id: str = "") -> dict:
+        now_iso = datetime.now(tz=timezone.utc).isoformat()
+        return {
+            "source_id": self.source_id,
+            "instance_id": self._instance_id,
+            "online": bool(online),
+            "reason": str(reason),
+            "last_heartbeat": now_iso,
+            "last_event_id": str(last_event_id),
+            "mode": self.state.mode,
+            "pomo_phase": str(self.pomodoro.view().phase),
+            "pearls": int(self.reward.pearls),
+            "today_pearls": int(self.reward.today_pearls),
+            "lifetime_pearls": int(self.reward.lifetime_pearls),
+            "focus_streak": int(self.reward.focus_streak),
+            "day_streak": int(self.reward.day_streak),
+            "title_id": str(self.reward.equipped_title_id),
+            "skin_id": str(self.reward.equipped_skin_id),
+            "bubble_style": str(self.reward.equipped_bubble_style),
+        }
+
+    def _publish_presence_file(self, online: bool, reason: str = "", last_event_id: str = "") -> None:
+        transport = self.sync_engine.transport
+        if transport is None or not hasattr(transport, "update_presence"):
+            return
+        try:
+            transport.update_presence(self._presence_snapshot(online=online, reason=reason, last_event_id=last_event_id))
+        except Exception:
+            return
 
     def _update_cofocus_progress(self) -> None:
         now_mono = time.monotonic()
@@ -912,18 +1046,45 @@ class DugongController:
         self._enqueue_sync(manual=True)
         self.refresh(bubble="Syncing...")
 
-    def run(self) -> None:
+    def on_presence_heartbeat(self) -> None:
+        now_mono = time.monotonic()
+        if (now_mono - self._presence_last_heartbeat_monotonic) < max(3.0, float(self._presence_heartbeat_seconds * 0.6)):
+            return
+        self._presence_last_heartbeat_monotonic = now_mono
         self.bus.emit(
-            DugongEvent(
-                event_type="presence_hello",
+            presence_heartbeat_event(
+                mode=self.state.mode,
+                pomo_phase=str(self.pomodoro.view().phase),
+                instance_id=self._instance_id,
                 source=self.source_id,
-                payload={"mode": self.state.mode},
             )
         )
+        self._publish_presence_file(online=True, reason="heartbeat")
+        self._request_fast_sync()
+
+    def on_quit_requested(self) -> None:
+        event = presence_bye_event(reason="quit", instance_id=self._instance_id, source=self.source_id)
+        try:
+            self.journal.append(event)
+            self.sync_engine.publish_local_event(event)
+        except Exception:
+            pass
+        self._publish_presence_file(online=False, reason="quit", last_event_id=event.event_id)
+
+    def run(self) -> None:
+        self.bus.emit(
+            presence_hello_event(
+                mode=self.state.mode,
+                instance_id=self._instance_id,
+                source=self.source_id,
+            )
+        )
+        self._publish_presence_file(online=True, reason="startup")
         self._emit_profile_update()
         self._request_fast_sync()
         self.refresh(bubble=f"Dugong online [{self.source_id}]")
         self.on_sync_now()
+        self.shell.schedule_every(self._presence_heartbeat_seconds, self.on_presence_heartbeat)
         self.shell.schedule_every(self.tick_seconds, self.on_tick)
         self.shell.schedule_every(1, self.on_pomo_tick)
         self.shell.schedule_every(self.sync_interval_seconds, self.on_sync_tick)
