@@ -684,3 +684,32 @@
 - Validation:
   - python -m py_compile dugong/dugong_app/controller.py dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/services/reward_service.py dugong/dugong_app/core/events.py dugong/tests/test_controller_policy.py -> ok
   - (cd dugong) python -m pytest -q -> 46 passed
+
+## 2026-02-21 16:55:36
+- Scope: Reward V1.5 - add EXP/Level system on top of existing pearls economy.
+- Files:
+  - dugong/dugong_app/services/reward_service.py
+  - dugong/dugong_app/core/events.py
+  - dugong/dugong_app/controller.py
+  - dugong/dugong_app/ui/shell_qt.py
+  - dugong/dugong_app/debug.py
+  - dugong/scripts/stress_pomo.py
+  - dugong/tests/test_pomodoro_reward.py
+  - dugong/tests/test_debug_cli.py
+- Changes:
+  - Added EXP economy in RewardService:
+    - fields: exp/lifetime_exp/today_exp/level/exp_in_level.
+    - level curve: required EXP = 50 + 20*(level-1).
+    - focus completion grants tiered EXP; co-focus milestone grants EXP.
+    - grant payload now carries exp/level/levels_gained.
+  - Added EXP to synced profile path:
+    - profile_update event payload now includes exp + level fields.
+    - controller presence snapshot/shared entities include exp/level.
+    - remote hover cards can show peer EXP/Level.
+  - UI reward strip now shows Lv + EXP progress (compact and normal mode).
+  - Added EXP floating text (and level-up hint) when rewards arrive.
+  - Debug CLI (`python -m dugong_app.debug pomo`) now includes EXP/Level fields.
+  - stress_pomo reward_grant event now includes exp/level fields.
+- Validation:
+  - python -m py_compile dugong/dugong_app/services/reward_service.py dugong/dugong_app/core/events.py dugong/dugong_app/controller.py dugong/dugong_app/ui/shell_qt.py dugong/dugong_app/debug.py dugong/scripts/stress_pomo.py -> ok
+  - (cd dugong) $env:PYTHONPATH='.'; pytest -q tests/test_pomodoro_reward.py tests/test_debug_cli.py tests/test_controller_policy.py -> 18 passed

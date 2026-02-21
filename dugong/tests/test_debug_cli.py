@@ -51,6 +51,10 @@ def test_debug_pomo_outputs_expected_keys(monkeypatch, capsys, tmp_path) -> None
     RewardStateStorage(tmp_path / "reward_state.json").save(
         {
             "pearls": 42,
+            "exp": 88,
+            "level": 2,
+            "exp_in_level": 38,
+            "exp_to_next": 70,
             "focus_streak": 2,
             "day_streak": 1,
             "cofocus_seconds_total": 600,
@@ -64,6 +68,8 @@ def test_debug_pomo_outputs_expected_keys(monkeypatch, capsys, tmp_path) -> None
     assert rc == 0
     assert payload["pomodoro"]["state"] == "PAUSED"
     assert payload["reward"]["pearls"] == 42
+    assert payload["reward"]["exp"] == 88
+    assert payload["reward"]["level"] == 2
     assert payload["reward"]["cofocus_seconds_total"] == 600
 
 

@@ -152,7 +152,6 @@ class _DugongWindow(QtWidgets.QWidget):
         self._peer_skin_assets_dir = self._resolve_skin_assets_dir(self._skin_root, "default")
         self._bg_src = self._load_background(self._local_skin_assets_dir)
         self._local_frames_raw, self._local_react_raw = self._load_character_assets(self._local_skin_assets_dir)
-        self._peer_frames_raw, self._peer_react_raw = self._load_character_assets(self._peer_skin_assets_dir)
 
         self._anim_mode = "swim"  # swim | idle | turn | react
         self._react_kind = "chill"  # study | chill | rest (with legacy aliases)
@@ -169,6 +168,12 @@ class _DugongWindow(QtWidgets.QWidget):
         self._pearls_total = 0
         self._lifetime_pearls = 0
         self._today_pearls = 0
+        self._exp_total = 0
+        self._lifetime_exp = 0
+        self._today_exp = 0
+        self._level = 1
+        self._exp_in_level = 0
+        self._exp_to_next = 50
         self._focus_streak = 0
         self._day_streak = 0
         self._equipped_title_id = "drifter"
@@ -181,6 +186,9 @@ class _DugongWindow(QtWidgets.QWidget):
         self._shop_dialog: QtWidgets.QDialog | None = None
         self._shop_hint_label: QtWidgets.QLabel | None = None
         self._shop_scale = 0.5
+        self._shop_bg_src = QtGui.QPixmap(str(self._assets_root / "dugong_shop.png"))
+        self._shop_skin_preview_cache: dict[tuple[str, int, int], QtGui.QPixmap] = {}
+        self._shop_badge_preview_cache: dict[tuple[str, int, int], QtGui.QPixmap] = {}
         self._shop_manual_pos: QtCore.QPoint | None = None
         self._shop_edge_hold_ms = 220
         self._shop_edge_pressing = False
@@ -240,6 +248,29 @@ class _DugongWindow(QtWidgets.QWidget):
                 font-size: 12px;
                 font-weight: 700;
                 padding: 0 10px;
+            }
+            """
+        )
+        self._exp_bar = QtWidgets.QProgressBar(self)
+        self._exp_bar.setRange(0, 100)
+        self._exp_bar.setValue(0)
+        self._exp_bar.setFormat("EXP 0/100")
+        self._exp_bar.setTextVisible(False)
+        self._exp_bar.setAlignment(QtCore.Qt.AlignCenter)
+        self._exp_bar.setFixedHeight(10)
+        self._exp_bar.setStyleSheet(
+            """
+            QProgressBar {
+                background: rgba(0,0,0,95);
+                border: 1px solid rgba(255,255,255,48);
+                border-radius: 5px;
+                padding: 0px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                            stop:0 rgba(52,185,98,240),
+                                            stop:1 rgba(96,225,132,245));
+                border-radius: 5px;
             }
             """
         )
@@ -435,13 +466,6 @@ class _DugongWindow(QtWidgets.QWidget):
         economy_page = mk_page(
             [
                 mk_btn("shop", "#36577a", self._emit_shop),
-                mk_btn("wardrobe", "#3f5d7b", self._emit_wardrobe),
-            ]
-        )
-        network_page = mk_page(
-            [
-                mk_btn("ping", "#275e44", self._emit_ping),
-                mk_btn("sync", "#6b4f1f", self._emit_sync),
             ]
         )
         self._mute_btn = mk_btn("mute: off", "#4f4f4f", self._toggle_mute)
@@ -449,7 +473,6 @@ class _DugongWindow(QtWidgets.QWidget):
 
         self._drawer_tabs.addTab(modes_page, "M")
         self._drawer_tabs.addTab(economy_page, "E")
-        self._drawer_tabs.addTab(network_page, "N")
         self._drawer_tabs.addTab(system_page, "S")
         dlay.addWidget(self._drawer_tabs, 1)
         self._update_pomo_toggle_label(self._pomo_state)
@@ -893,12 +916,15 @@ class _DugongWindow(QtWidgets.QWidget):
 
             pearl_w = max(170, min(self.width() - 16, self._pearl.sizeHint().width() + 12))
             self._pearl.setGeometry(8, self.height() - 30, pearl_w, 22)
+            exp_w = max(170, min(self.width() - 16, pearl_w))
+            self._exp_bar.setGeometry(8, self.height() - 46, exp_w, 10)
             self._drawer_toggle.setFixedSize(56, 24)
         else:
             self._title.show()
             self._title.setGeometry(0, 8, self.width(), 26)
             pearl_w = max(170, min(320, self._pearl.sizeHint().width() + 16))
             self._pearl.setGeometry(66, 10, pearl_w, 22)
+            self._exp_bar.setGeometry(66, 35, pearl_w, 10)
             chip_w = max(170, min(280, self._pomo.sizeHint().width() + 16))
             x = self.width() - chip_w - 14
             self._pomo.setGeometry(x, 10, chip_w, 22)
@@ -944,16 +970,18 @@ class _DugongWindow(QtWidgets.QWidget):
             except Exception:
                 pass
             self._shop_dialog = None
-            self._open_shop_dialog()
+            self._emit_shop()
 
     def _update_pearl_text(self) -> None:
+        self._exp_bar.setRange(0, max(1, int(self._exp_to_next)))
+        self._exp_bar.setValue(max(0, min(int(self._exp_in_level), int(self._exp_to_next))))
         if self._compact_mode:
             self._pearl.setText(
-                f"P {self._pearls_total}  +{self._today_pearls}  L {self._lifetime_pearls}  S{self._focus_streak} D{self._day_streak}"
+                f"P {self._pearls_total} +{self._today_pearls} L{self._lifetime_pearls} | Lv{self._level} XP {self._exp_in_level}/{self._exp_to_next} | S{self._focus_streak} D{self._day_streak}"
             )
         else:
             self._pearl.setText(
-                f"Pearls {self._pearls_total} (+{self._today_pearls} today) | Life {self._lifetime_pearls} | S{self._focus_streak} D{self._day_streak}"
+                f"Pearls {self._pearls_total} (+{self._today_pearls} today) | Lv {self._level} EXP {self._exp_in_level}/{self._exp_to_next} | S{self._focus_streak} D{self._day_streak}"
             )
 
     def _drawer_closed_rect(self) -> QtCore.QRect:
@@ -1068,6 +1096,12 @@ class _DugongWindow(QtWidgets.QWidget):
             "pearls": 0,
             "today_pearls": 0,
             "lifetime_pearls": 0,
+            "exp": 0,
+            "today_exp": 0,
+            "lifetime_exp": 0,
+            "level": 1,
+            "exp_in_level": 0,
+            "exp_to_next": 50,
             "focus_streak": 0,
             "day_streak": 0,
             "title_id": "drifter",
@@ -1112,6 +1146,12 @@ class _DugongWindow(QtWidgets.QWidget):
             peer["pearls"] = int(entity.get("pearls", peer.get("pearls", 0)))
             peer["today_pearls"] = int(entity.get("today_pearls", peer.get("today_pearls", 0)))
             peer["lifetime_pearls"] = int(entity.get("lifetime_pearls", peer.get("lifetime_pearls", 0)))
+            peer["exp"] = int(entity.get("exp", peer.get("exp", 0)))
+            peer["today_exp"] = int(entity.get("today_exp", peer.get("today_exp", 0)))
+            peer["lifetime_exp"] = int(entity.get("lifetime_exp", peer.get("lifetime_exp", 0)))
+            peer["level"] = int(entity.get("level", peer.get("level", 1)))
+            peer["exp_in_level"] = int(entity.get("exp_in_level", peer.get("exp_in_level", 0)))
+            peer["exp_to_next"] = int(entity.get("exp_to_next", peer.get("exp_to_next", 50)))
             peer["focus_streak"] = int(entity.get("focus_streak", peer.get("focus_streak", 0)))
             peer["day_streak"] = int(entity.get("day_streak", peer.get("day_streak", 0)))
             peer["title_id"] = str(entity.get("title_id", peer.get("title_id", "drifter")))
@@ -1740,6 +1780,7 @@ class _DugongWindow(QtWidgets.QWidget):
                 f"Mode: {mode}  Pomo: {str(self._local_profile.get('pomo_state', self._pomo_state.lower()))}",
                 f"Mood: {mood}  Energy: {energy}  Focus: {focus}",
                 f"Pearls: {self._pearls_total}  Today: +{self._today_pearls}  Lifetime: {self._lifetime_pearls}",
+                f"Level: {self._level}  EXP: {self._exp_in_level}/{self._exp_to_next}  Total: {self._exp_total}",
                 f"Streak: {self._focus_streak}  Day: {self._day_streak}",
             ]
         else:
@@ -1758,6 +1799,7 @@ class _DugongWindow(QtWidgets.QWidget):
                 f"Mode: {mode}  Pomo: {phase}",
                 status_line,
                 f"Pearls: {int(peer.get('pearls', 0))} (+{int(peer.get('today_pearls', 0))} today)",
+                f"Level: {int(peer.get('level', 1))}  EXP: {int(peer.get('exp_in_level', 0))}/{int(peer.get('exp_to_next', 50))}  Total: {int(peer.get('exp', 0))}",
                 f"Streak: {int(peer.get('focus_streak', 0))}  Day: {int(peer.get('day_streak', 0))}",
             ]
 
@@ -1984,6 +2026,12 @@ class _DugongWindow(QtWidgets.QWidget):
         pearls = int(stats.get("pearls", self._pearls_total))
         lifetime = int(stats.get("lifetime_pearls", self._lifetime_pearls))
         today = int(stats.get("today_pearls", self._today_pearls))
+        exp_total = int(stats.get("exp", self._exp_total))
+        lifetime_exp = int(stats.get("lifetime_exp", self._lifetime_exp))
+        today_exp = int(stats.get("today_exp", self._today_exp))
+        level = int(stats.get("level", self._level))
+        exp_in_level = int(stats.get("exp_in_level", self._exp_in_level))
+        exp_to_next = max(1, int(stats.get("exp_to_next", self._exp_to_next)))
         focus_streak = int(stats.get("focus_streak", self._focus_streak))
         day_streak = int(stats.get("day_streak", self._day_streak))
         equipped_skin_id = str(stats.get("equipped_skin_id", self._equipped_skin_id))
@@ -1996,10 +2044,19 @@ class _DugongWindow(QtWidgets.QWidget):
         delta = pearls - self._pearls_total
         if delta > 0:
             self._spawn_reward_float(delta)
+        exp_delta = exp_total - self._exp_total
+        if exp_delta > 0:
+            self._spawn_exp_float(exp_delta, level_up=(level > self._level))
 
         self._pearls_total = pearls
         self._lifetime_pearls = lifetime
         self._today_pearls = today
+        self._exp_total = exp_total
+        self._lifetime_exp = lifetime_exp
+        self._today_exp = today_exp
+        self._level = max(1, level)
+        self._exp_in_level = max(0, exp_in_level)
+        self._exp_to_next = max(1, exp_to_next)
         self._focus_streak = focus_streak
         self._day_streak = day_streak
         self._equipped_bubble_style = equipped_bubble_style
@@ -2030,6 +2087,26 @@ class _DugongWindow(QtWidgets.QWidget):
                 "vy": -0.75,
                 "life": 1.4,
                 "text": f"+{int(gain)} pearls",
+            }
+        )
+        if len(self._floating_rewards) > 8:
+            self._floating_rewards = self._floating_rewards[-8:]
+
+    def _spawn_exp_float(self, gain: int, level_up: bool = False) -> None:
+        if self._dugong_frame.isNull():
+            return
+        base_x = self._x + (self._dugong_frame.width() * 0.55)
+        base_y = self._y + (self._dugong_frame.height() * 0.30)
+        text = f"+{int(gain)} EXP"
+        if level_up:
+            text = f"{text}  Lv Up!"
+        self._floating_rewards.append(
+            {
+                "x": float(base_x),
+                "y": float(base_y),
+                "vy": -0.68,
+                "life": 1.3,
+                "text": text,
             }
         )
         if len(self._floating_rewards) > 8:
@@ -2169,10 +2246,6 @@ class _DugongWindow(QtWidgets.QWidget):
             self._trigger_react("rest", ms=2000)
         self._on_mode_change(mode)
 
-    def _emit_ping(self) -> None:
-        if self._on_manual_ping is not None:
-            self._on_manual_ping("checkin")
-
     def _emit_pomo_start(self) -> None:
         if self._on_pomo_start is not None:
             self._on_pomo_start()
@@ -2193,17 +2266,90 @@ class _DugongWindow(QtWidgets.QWidget):
             self._on_pomo_skip()
 
     def _emit_shop(self) -> None:
+        if self._compact_mode:
+            if self._shop_dialog is not None and self._shop_dialog.isVisible():
+                self._shop_dialog.close()
+                self._shop_dialog = None
+            self._open_shop_compact_menu()
+            return
         self._open_shop_dialog()
 
+    def _open_shop_compact_menu(self) -> None:
+        menu = QtWidgets.QMenu(self)
+        menu.setStyleSheet(
+            """
+            QMenu {
+                background: rgba(12,35,54,238);
+                color: rgba(235,247,255,245);
+                border: 1px solid rgba(120,180,220,170);
+                border-radius: 8px;
+                padding: 6px;
+            }
+            QMenu::item {
+                padding: 6px 12px;
+                border-radius: 6px;
+            }
+            QMenu::item:selected {
+                background: rgba(60,110,150,180);
+            }
+            """
+        )
+
+        skins_menu = menu.addMenu("皮肤")
+        titles_menu = menu.addMenu("徽章")
+        bubbles_menu = menu.addMenu("气泡")
+
+        skin_items = [("default", 0, "Default"), ("horse", 120, "Horse"), ("king", 160, "King")]
+        title_items = [("drifter", 0, "Wanderer"), ("explorer", 60, "Explorer")]
+        bubble_items = [("default", 0, "Default"), ("ocean", 80, "Ocean")]
+
+        for sid, price, label in skin_items:
+            suffix = self._item_state_suffix("skin", sid, price)
+            action = skins_menu.addAction(f"{label} | {suffix}")
+            action.triggered.connect(
+                lambda _checked=False, item_id=sid, p=price: self._on_shop_action
+                and self._on_shop_action("skin", item_id, p)
+            )
+
+        for tid, price, label in title_items:
+            suffix = self._item_state_suffix("title", tid, price)
+            action = titles_menu.addAction(f"{label} | {suffix}")
+            action.triggered.connect(
+                lambda _checked=False, item_id=tid, p=price: self._on_shop_action
+                and self._on_shop_action("title", item_id, p)
+            )
+
+        for bid, price, label in bubble_items:
+            suffix = self._item_state_suffix("bubble", bid, price)
+            action = bubbles_menu.addAction(f"{label} | {suffix}")
+            action.triggered.connect(
+                lambda _checked=False, item_id=bid, p=price: self._on_shop_action
+                and self._on_shop_action("bubble", item_id, p)
+            )
+
+        menu.exec(QtGui.QCursor.pos())
+
     def _shop_skin_preview(self, skin_id: str, size: QtCore.QSize) -> QtGui.QPixmap:
+        key = (str(skin_id), int(size.width()), int(size.height()))
+        cached = self._shop_skin_preview_cache.get(key)
+        if cached is not None and not cached.isNull():
+            return cached
         assets_dir = self._resolve_skin_assets_dir(self._skin_root, skin_id)
         for prefix in ("Idle_loop", "Swim_loop", "React_chill"):
             frames = self._load_by_prefix(assets_dir, prefix)
             if frames:
-                return frames[0].scaled(size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
-        return QtGui.QPixmap()
+                pm = frames[0].scaled(size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+                self._shop_skin_preview_cache[key] = pm
+                return pm
+        pm = QtGui.QPixmap()
+        self._shop_skin_preview_cache[key] = pm
+        return pm
 
     def _shop_badge_preview(self, title_id: str, size: QtCore.QSize) -> QtGui.QPixmap:
+        key = (str(title_id), int(size.width()), int(size.height()))
+        cached = self._shop_badge_preview_cache.get(key)
+        if cached is not None and not cached.isNull():
+            return cached
         badge_dir = self._assets_root / "badge"
         title_l = (title_id or "").strip().lower()
         alias = {"drifter": "wanderer"}.get(title_l, title_l)
@@ -2223,7 +2369,9 @@ class _DugongWindow(QtWidgets.QWidget):
             if path.exists() and path.is_file():
                 pm = QtGui.QPixmap(str(path))
                 if not pm.isNull():
-                    return pm.scaled(size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+                    out = pm.scaled(size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+                    self._shop_badge_preview_cache[key] = out
+                    return out
 
         pm = QtGui.QPixmap(size)
         pm.fill(QtCore.Qt.transparent)
@@ -2244,6 +2392,7 @@ class _DugongWindow(QtWidgets.QWidget):
         painter.setPen(fg)
         painter.drawText(pm.rect(), QtCore.Qt.AlignCenter, letter)
         painter.end()
+        self._shop_badge_preview_cache[key] = pm
         return pm
 
     def _item_state_suffix(self, kind: str, item_id: str, price: int) -> str:
@@ -2297,7 +2446,10 @@ class _DugongWindow(QtWidgets.QWidget):
         dlg.setModal(False)
         dlg.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
 
-        bg_src = QtGui.QPixmap(str(self._assets_root / "dugong_shop.png"))
+        bg_src = self._shop_bg_src
+        if bg_src.isNull():
+            bg_src = QtGui.QPixmap(str(self._assets_root / "dugong_shop.png"))
+            self._shop_bg_src = bg_src
         if bg_src.isNull():
             # fallback to old menu if asset is missing
             menu = QtWidgets.QMenu(self)
@@ -2305,20 +2457,14 @@ class _DugongWindow(QtWidgets.QWidget):
             menu.exec(QtGui.QCursor.pos())
             return
 
-        # Mode-based default scale:
-        # full mode opens at "max" size; compact mode opens smaller.
-        self._shop_scale = 1.0 if not self._compact_mode else 0.70
-
         # Use different sizing rules for compact/full modes.
         if self._compact_mode:
-            target_h = min(360, max(240, int(self.height() * 1.00)))
-            max_w = max(360, int(self.width() * 0.90))
+            # Compact window: keep shop readable but not intrusive.
+            target_h = min(240, max(180, int(self.height() * 0.82)))
+            max_w = max(280, int(self.width() * 0.72))
         else:
             target_h = min(620, max(380, int(self.height() * 1.72)))
             max_w = max(760, int(self.width() * 0.86))
-        shop_scale = self._shop_scale
-        target_h = max(180, int(target_h * shop_scale))
-        max_w = max(260, int(max_w * shop_scale))
         bg = bg_src.scaledToHeight(target_h, QtCore.Qt.SmoothTransformation)
         if bg.width() > max_w:
             bg = bg.scaledToWidth(max_w, QtCore.Qt.SmoothTransformation)
@@ -2418,56 +2564,6 @@ class _DugongWindow(QtWidgets.QWidget):
         close_btn.raise_()
         close_btn.clicked.connect(dlg.close)
 
-        def adjust_shop_scale(delta: float) -> None:
-            new_scale = max(0.35, min(1.20, round(self._shop_scale + delta, 2)))
-            if abs(new_scale - self._shop_scale) < 0.001:
-                return
-            self._shop_scale = new_scale
-            dlg.close()
-            QtCore.QTimer.singleShot(0, self._open_shop_dialog)
-
-        zoom_out_btn = QtWidgets.QPushButton("-", root)
-        zoom_out_btn.setGeometry(12, 12, 30, 30)
-        zoom_out_btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
-        zoom_out_btn.setStyleSheet(
-            """
-            QPushButton {
-                color: rgba(248,253,255,248);
-                background: rgba(10,34,58,235);
-                border: 1px solid rgba(150,210,240,205);
-                border-radius: 9px;
-                font-size: 16px;
-                font-weight: 900;
-            }
-            QPushButton:hover {
-                background: rgba(22,52,82,240);
-            }
-            """
-        )
-        zoom_out_btn.clicked.connect(lambda _checked=False: adjust_shop_scale(-0.1))
-        zoom_out_btn.raise_()
-
-        zoom_in_btn = QtWidgets.QPushButton("+", root)
-        zoom_in_btn.setGeometry(46, 12, 30, 30)
-        zoom_in_btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
-        zoom_in_btn.setStyleSheet(
-            """
-            QPushButton {
-                color: rgba(248,253,255,248);
-                background: rgba(10,34,58,235);
-                border: 1px solid rgba(150,210,240,205);
-                border-radius: 9px;
-                font-size: 16px;
-                font-weight: 900;
-            }
-            QPushButton:hover {
-                background: rgba(22,52,82,240);
-            }
-            """
-        )
-        zoom_in_btn.clicked.connect(lambda _checked=False: adjust_shop_scale(0.1))
-        zoom_in_btn.raise_()
-
         # Main target: left wooden shelf for skins (image cards)
         skin_items = [
             ("king", 160, "King"),
@@ -2511,11 +2607,11 @@ class _DugongWindow(QtWidgets.QWidget):
             mk_item_btn(icon, rect, hover_text, on_title_click, hit_expand_w=14, hit_expand_h=10)
 
         dlg.destroyed.connect(lambda _obj=None: setattr(self, "_shop_dialog", None))
+        self._shop_dialog = dlg
         dlg.show()
         self._position_shop_dialog()
         dlg.raise_()
         dlg.activateWindow()
-        self._shop_dialog = dlg
 
     def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:
         if watched.property("shop_drag_surface"):
@@ -2586,48 +2682,6 @@ class _DugongWindow(QtWidgets.QWidget):
             pos = QtCore.QPoint(x, y)
         dlg.move(pos)
         self._shop_manual_pos = QtCore.QPoint(pos)
-
-    def _emit_wardrobe(self) -> None:
-        menu = QtWidgets.QMenu(self)
-        skin_root = self._skin_root
-        candidates: list[str] = []
-        if skin_root.exists():
-            for p in skin_root.iterdir():
-                if p.is_dir():
-                    sid = p.name.strip()
-                    if sid:
-                        candidates.append(sid)
-        candidates = sorted(set(candidates))
-        if not candidates:
-            action = menu.addAction("No skins found")
-            action.setEnabled(False)
-            menu.exec(QtGui.QCursor.pos())
-            return
-
-        for sid in candidates:
-            pretty = sid.replace("_", " ").title()
-            if sid == "default":
-                price = 0
-            elif sid == "horse":
-                price = 120
-            elif sid == "king":
-                price = 160
-            else:
-                price = 100
-            sid_l = sid.lower()
-            equipped = sid == self._equipped_skin_id
-            owned = sid_l in self._owned_skins
-            if equipped:
-                suffix = "(equipped)"
-            elif owned:
-                suffix = "(owned)"
-            else:
-                suffix = f"({price} pearls)" if price > 0 else "(free)"
-            action = menu.addAction(f"{pretty} {suffix}")
-            action.triggered.connect(
-                lambda _checked=False, item_id=sid, p=price: self._on_shop_action and self._on_shop_action("skin", item_id, p)
-            )
-        menu.exec(QtGui.QCursor.pos())
 
     def _emit_sync(self) -> None:
         if self._on_sync_now is not None:

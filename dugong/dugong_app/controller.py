@@ -301,7 +301,8 @@ class DugongController:
             return f"[{event.source}] co-focus milestone {mins}m"
         if event.event_type == "reward_grant":
             pearls = int(event.payload.get("pearls", 0))
-            return f"[{event.source}] +{pearls} pearls"
+            exp = int(event.payload.get("exp", 0))
+            return f"[{event.source}] +{pearls} pearls, +{exp} exp"
         if event.event_type == "mode_change":
             mode = event.payload.get("mode", "unknown")
             return f"[{event.source}] -> {mode}"
@@ -387,6 +388,12 @@ class DugongController:
                     "lifetime_pearls": 0,
                     "focus_streak": 0,
                     "day_streak": 0,
+                    "exp": 0,
+                    "today_exp": 0,
+                    "lifetime_exp": 0,
+                    "level": 1,
+                    "exp_in_level": 0,
+                    "exp_to_next": 50,
                     "title_id": "drifter",
                     "skin_id": "default",
                     "bubble_style": "default",
@@ -442,6 +449,12 @@ class DugongController:
                 entry["lifetime_pearls"] = int(ev.payload.get("lifetime_pearls", entry.get("lifetime_pearls", 0)))
                 entry["focus_streak"] = int(ev.payload.get("focus_streak", entry.get("focus_streak", 0)))
                 entry["day_streak"] = int(ev.payload.get("day_streak", entry.get("day_streak", 0)))
+                entry["exp"] = int(ev.payload.get("exp", entry.get("exp", 0)))
+                entry["today_exp"] = int(ev.payload.get("today_exp", entry.get("today_exp", 0)))
+                entry["lifetime_exp"] = int(ev.payload.get("lifetime_exp", entry.get("lifetime_exp", 0)))
+                entry["level"] = int(ev.payload.get("level", entry.get("level", 1)))
+                entry["exp_in_level"] = int(ev.payload.get("exp_in_level", entry.get("exp_in_level", 0)))
+                entry["exp_to_next"] = int(ev.payload.get("exp_to_next", entry.get("exp_to_next", 50)))
                 entry["title_id"] = str(ev.payload.get("title_id", entry.get("title_id", "drifter")))
                 entry["skin_id"] = str(ev.payload.get("skin_id", entry.get("skin_id", "default")))
                 entry["bubble_style"] = str(ev.payload.get("bubble_style", entry.get("bubble_style", "default")))
@@ -466,6 +479,12 @@ class DugongController:
                     "lifetime_pearls": 0,
                     "focus_streak": 0,
                     "day_streak": 0,
+                    "exp": 0,
+                    "today_exp": 0,
+                    "lifetime_exp": 0,
+                    "level": 1,
+                    "exp_in_level": 0,
+                    "exp_to_next": 50,
                     "title_id": "drifter",
                     "skin_id": "default",
                     "bubble_style": "default",
@@ -499,6 +518,12 @@ class DugongController:
             entry["lifetime_pearls"] = int(snap.get("lifetime_pearls", entry.get("lifetime_pearls", 0)))
             entry["focus_streak"] = int(snap.get("focus_streak", entry.get("focus_streak", 0)))
             entry["day_streak"] = int(snap.get("day_streak", entry.get("day_streak", 0)))
+            entry["exp"] = int(snap.get("exp", entry.get("exp", 0)))
+            entry["today_exp"] = int(snap.get("today_exp", entry.get("today_exp", 0)))
+            entry["lifetime_exp"] = int(snap.get("lifetime_exp", entry.get("lifetime_exp", 0)))
+            entry["level"] = int(snap.get("level", entry.get("level", 1)))
+            entry["exp_in_level"] = int(snap.get("exp_in_level", entry.get("exp_in_level", 0)))
+            entry["exp_to_next"] = int(snap.get("exp_to_next", entry.get("exp_to_next", 50)))
 
     def _is_remote_online(self, info: dict[str, str | float], now: float | None = None) -> bool:
         if float(info.get("online", 1.0)) <= 0.0:
@@ -524,6 +549,12 @@ class DugongController:
                 "lifetime_pearls": int(info.get("lifetime_pearls", 0)),
                 "focus_streak": int(info.get("focus_streak", 0)),
                 "day_streak": int(info.get("day_streak", 0)),
+                "exp": int(info.get("exp", 0)),
+                "today_exp": int(info.get("today_exp", 0)),
+                "lifetime_exp": int(info.get("lifetime_exp", 0)),
+                "level": int(info.get("level", 1)),
+                "exp_in_level": int(info.get("exp_in_level", 0)),
+                "exp_to_next": int(info.get("exp_to_next", 50)),
                 "title_id": str(info.get("title_id", "drifter")),
                 "skin_id": str(info.get("skin_id", "default")),
                 "bubble_style": str(info.get("bubble_style", "default")),
@@ -544,6 +575,12 @@ class DugongController:
             "lifetime_pearls": int(self.reward.lifetime_pearls),
             "focus_streak": int(self.reward.focus_streak),
             "day_streak": int(self.reward.day_streak),
+            "exp": int(self.reward.exp),
+            "today_exp": int(self.reward.today_exp),
+            "lifetime_exp": int(self.reward.lifetime_exp),
+            "level": int(self.reward.level),
+            "exp_in_level": int(self.reward.exp_in_level),
+            "exp_to_next": int(self.reward.exp_to_next_level()),
             "title_id": str(self.reward.equipped_title_id),
             "skin_id": str(self.reward.equipped_skin_id),
             "bubble_style": str(self.reward.equipped_bubble_style),
@@ -685,6 +722,12 @@ class DugongController:
             "lifetime_pearls": int(self.reward.lifetime_pearls),
             "focus_streak": int(self.reward.focus_streak),
             "day_streak": int(self.reward.day_streak),
+            "exp": int(self.reward.exp),
+            "today_exp": int(self.reward.today_exp),
+            "lifetime_exp": int(self.reward.lifetime_exp),
+            "level": int(self.reward.level),
+            "exp_in_level": int(self.reward.exp_in_level),
+            "exp_to_next": int(self.reward.exp_to_next_level()),
             "title_id": str(self.reward.equipped_title_id),
             "skin_id": str(self.reward.equipped_skin_id),
             "bubble_style": str(self.reward.equipped_bubble_style),
@@ -745,6 +788,12 @@ class DugongController:
                     "pearls": int(self.reward.pearls),
                     "lifetime_pearls": int(self.reward.lifetime_pearls),
                     "today_pearls": int(self.reward.today_pearls),
+                    "exp": int(self.reward.exp),
+                    "lifetime_exp": int(self.reward.lifetime_exp),
+                    "today_exp": int(self.reward.today_exp),
+                    "level": int(self.reward.level),
+                    "exp_in_level": int(self.reward.exp_in_level),
+                    "exp_to_next": int(self.reward.exp_to_next_level()),
                     "focus_streak": int(self.reward.focus_streak),
                     "day_streak": int(self.reward.day_streak),
                     "equipped_skin_id": self.reward.equipped_skin_id,
@@ -788,11 +837,17 @@ class DugongController:
                         session_id=grant.session_id,
                         focus_streak=grant.focus_streak,
                         day_streak=grant.day_streak,
+                        exp=grant.exp,
+                        level=grant.level,
+                        levels_gained=grant.levels_gained,
                         source=self.source_id,
                     )
                 )
         elif event.event_type == "pomo_skip" and str(event.source) == self.source_id:
-            self.reward.on_skip(str(event.payload.get("from_phase", "")))
+            self.reward.on_skip(
+                str(event.payload.get("from_phase", "")),
+                session_id=str(event.payload.get("session_id", "")),
+            )
             self._nudge_mood(-3)
             self._reward_dirty = True
             self._emit_profile_update()
@@ -813,6 +868,9 @@ class DugongController:
                         session_id=grant.session_id,
                         focus_streak=grant.focus_streak,
                         day_streak=grant.day_streak,
+                        exp=grant.exp,
+                        level=grant.level,
+                        levels_gained=grant.levels_gained,
                         source=self.source_id,
                     )
                 )
@@ -866,6 +924,12 @@ class DugongController:
                 pearls=int(self.reward.pearls),
                 today_pearls=int(self.reward.today_pearls),
                 lifetime_pearls=int(self.reward.lifetime_pearls),
+                exp=int(self.reward.exp),
+                today_exp=int(self.reward.today_exp),
+                lifetime_exp=int(self.reward.lifetime_exp),
+                level=int(self.reward.level),
+                exp_in_level=int(self.reward.exp_in_level),
+                exp_to_next=int(self.reward.exp_to_next_level()),
                 focus_streak=int(self.reward.focus_streak),
                 day_streak=int(self.reward.day_streak),
                 title_id=str(self.reward.equipped_title_id),
@@ -993,6 +1057,7 @@ class DugongController:
 
     def on_pomo_tick(self) -> None:
         self._update_cofocus_progress()
+        self._grant_focus_progress_exp()
         events = self.pomodoro.tick()
         if events:
             self._pomo_dirty = True
@@ -1013,6 +1078,26 @@ class DugongController:
             return
         self._last_pomo_render_key = key
         self.refresh()
+
+    def _grant_focus_progress_exp(self) -> None:
+        view = self.pomodoro.view()
+        if view.state != POMO_FOCUS or str(view.phase).lower() != "focus":
+            return
+        snap = self.pomodoro.snapshot()
+        duration_s = max(0, int(snap.get("phase_duration_s", 0)))
+        completed_s = max(0, duration_s - int(view.remaining_s))
+        gained, levels_gained = self.reward.grant_focus_progress(
+            session_id=str(view.session_id),
+            completed_s=completed_s,
+            start_after_s=60,
+            step_s=60,
+            exp_per_step=1,
+        )
+        if gained <= 0:
+            return
+        self._reward_dirty = True
+        if levels_gained > 0:
+            self._emit_profile_update()
 
     def on_tick(self) -> None:
         self.state = apply_tick(self.state, tick_seconds=self.tick_seconds)
@@ -1046,7 +1131,6 @@ class DugongController:
         self._sync_idle_multiplier = 1
         self._next_auto_sync_monotonic = 0.0
         self._enqueue_sync(manual=True)
-        self.refresh(bubble="Syncing...")
 
     def on_presence_heartbeat(self) -> None:
         now_mono = time.monotonic()
@@ -1066,11 +1150,10 @@ class DugongController:
     def on_quit_requested(self) -> None:
         event = presence_bye_event(reason="quit", instance_id=self._instance_id, source=self.source_id)
         try:
-            self.journal.append(event)
-            self.sync_engine.publish_local_event(event)
+            # Keep quit path non-blocking: do not perform network I/O here.
+            self.bus.emit(event)
         except Exception:
             pass
-        self._publish_presence_file(online=False, reason="quit", last_event_id=event.event_id)
 
     def run(self) -> None:
         self.bus.emit(

@@ -302,6 +302,9 @@ def run_stress_pomo(args: argparse.Namespace) -> int:
                             session_id=grant.session_id,
                             focus_streak=grant.focus_streak,
                             day_streak=grant.day_streak,
+                            exp=grant.exp,
+                            level=grant.level,
+                            levels_gained=grant.levels_gained,
                             source=source,
                         )
                         _safe_append(journal, grant_event, metrics)

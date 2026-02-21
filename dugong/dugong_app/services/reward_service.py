@@ -7,27 +7,45 @@ from datetime import datetime, timedelta, timezone
 @dataclass
 class RewardGrant:
     pearls: int
+    exp: int
     streak_bonus: int
     reason: str
     session_id: str
     focus_streak: int
     day_streak: int
+    level: int
+    levels_gained: int
 
 
 class RewardService:
-    def __init__(self, base_pearls: int = 10, valid_ratio: float = 0.8, max_granted_sessions: int = 2000) -> None:
+    def __init__(
+        self,
+        base_pearls: int = 10,
+        valid_ratio: float = 0.8,
+        max_granted_sessions: int = 2000,
+        base_focus_exp: int = 20,
+        cofocus_exp: int = 6,
+    ) -> None:
         self.base_pearls = max(1, int(base_pearls))
         self.valid_ratio = min(1.0, max(0.1, float(valid_ratio)))
         self.max_granted_sessions = max(100, int(max_granted_sessions))
+        self.base_focus_exp = max(1, int(base_focus_exp))
+        self.cofocus_exp = max(1, int(cofocus_exp))
 
         self.pearls = 0
         self.lifetime_pearls = 0
         self.today_pearls = 0
+        self.exp = 0
+        self.lifetime_exp = 0
+        self.today_exp = 0
+        self.level = 1
+        self.exp_in_level = 0
         self.today_date = ""
         self.focus_streak = 0
         self.day_streak = 0
         self.last_focus_day = ""
         self.granted_sessions: list[str] = []
+        self.focus_progress_awarded_steps: dict[str, int] = {}
         self.granted_cofocus_milestones: list[str] = []
         self.cofocus_seconds_total = 0
         self.shop_owned_skins: list[str] = ["default"]
@@ -42,6 +60,7 @@ class RewardService:
         if self.today_date != today:
             self.today_date = today
             self.today_pearls = 0
+            self.today_exp = 0
 
     def _add_pearls(self, amount: int) -> None:
         gain = max(0, int(amount))
@@ -65,16 +84,63 @@ class RewardService:
             bonus = 0
         return self.base_pearls + bonus, bonus
 
+    def _tiered_focus_exp(self) -> int:
+        if self.focus_streak >= 7:
+            bonus = 12
+        elif self.focus_streak >= 4:
+            bonus = 6
+        else:
+            bonus = 0
+        return self.base_focus_exp + bonus
+
+    def _exp_required_for_level(self, level: int) -> int:
+        lvl = max(1, int(level))
+        return 50 + ((lvl - 1) * 20)
+
+    def _recompute_level(self) -> None:
+        remaining = max(0, int(self.exp))
+        level = 1
+        while True:
+            need = self._exp_required_for_level(level)
+            if remaining < need:
+                break
+            remaining -= need
+            level += 1
+        self.level = level
+        self.exp_in_level = remaining
+
+    def exp_to_next_level(self) -> int:
+        return self._exp_required_for_level(self.level)
+
+    def _add_exp(self, amount: int) -> tuple[int, int]:
+        gain = max(0, int(amount))
+        if gain <= 0:
+            return 0, 0
+        self._ensure_today_bucket()
+        prev_level = self.level
+        self.exp += gain
+        self.lifetime_exp += gain
+        self.today_exp += gain
+        self._recompute_level()
+        return gain, max(0, int(self.level - prev_level))
+
     def snapshot(self) -> dict:
         return {
             "pearls": int(self.pearls),
             "lifetime_pearls": int(self.lifetime_pearls),
             "today_pearls": int(self.today_pearls),
+            "exp": int(self.exp),
+            "lifetime_exp": int(self.lifetime_exp),
+            "today_exp": int(self.today_exp),
+            "level": int(self.level),
+            "exp_in_level": int(self.exp_in_level),
+            "exp_to_next": int(self.exp_to_next_level()),
             "today_date": self.today_date,
             "focus_streak": int(self.focus_streak),
             "day_streak": int(self.day_streak),
             "last_focus_day": self.last_focus_day,
             "granted_sessions": list(self.granted_sessions),
+            "focus_progress_awarded_steps": dict(self.focus_progress_awarded_steps),
             "granted_cofocus_milestones": list(self.granted_cofocus_milestones),
             "cofocus_seconds_total": int(self.cofocus_seconds_total),
             "shop_owned_skins": list(self.shop_owned_skins),
@@ -84,6 +150,8 @@ class RewardService:
             "equipped_bubble_style": self.equipped_bubble_style,
             "equipped_title_id": self.equipped_title_id,
             "base_pearls": int(self.base_pearls),
+            "base_focus_exp": int(self.base_focus_exp),
+            "cofocus_exp": int(self.cofocus_exp),
             "valid_ratio": float(self.valid_ratio),
         }
 
@@ -93,6 +161,9 @@ class RewardService:
         self.pearls = max(0, int(payload.get("pearls", self.pearls)))
         self.lifetime_pearls = max(0, int(payload.get("lifetime_pearls", self.pearls)))
         self.today_pearls = max(0, int(payload.get("today_pearls", self.today_pearls)))
+        self.exp = max(0, int(payload.get("exp", self.exp)))
+        self.lifetime_exp = max(0, int(payload.get("lifetime_exp", self.exp)))
+        self.today_exp = max(0, int(payload.get("today_exp", self.today_exp)))
         self.today_date = str(payload.get("today_date", self.today_date))
         self._ensure_today_bucket()
         self.focus_streak = max(0, int(payload.get("focus_streak", self.focus_streak)))
@@ -102,6 +173,18 @@ class RewardService:
         if isinstance(sessions, list):
             self.granted_sessions = [str(s) for s in sessions if str(s).strip()]
         self.granted_sessions = self.granted_sessions[-self.max_granted_sessions :]
+        progress_steps_raw = payload.get("focus_progress_awarded_steps", {})
+        if isinstance(progress_steps_raw, dict):
+            clean: dict[str, int] = {}
+            for key, value in progress_steps_raw.items():
+                sid = str(key).strip()
+                if not sid:
+                    continue
+                clean[sid] = max(0, int(value))
+            if len(clean) > self.max_granted_sessions:
+                items = list(clean.items())[-self.max_granted_sessions :]
+                clean = dict(items)
+            self.focus_progress_awarded_steps = clean
         milestones = payload.get("granted_cofocus_milestones", [])
         if isinstance(milestones, list):
             self.granted_cofocus_milestones = [str(s) for s in milestones if str(s).strip()]
@@ -126,7 +209,10 @@ class RewardService:
         if self.equipped_title_id not in self.shop_owned_titles:
             self.equipped_title_id = "drifter"
         self.base_pearls = max(1, int(payload.get("base_pearls", self.base_pearls)))
+        self.base_focus_exp = max(1, int(payload.get("base_focus_exp", self.base_focus_exp)))
+        self.cofocus_exp = max(1, int(payload.get("cofocus_exp", self.cofocus_exp)))
         self.valid_ratio = min(1.0, max(0.1, float(payload.get("valid_ratio", self.valid_ratio))))
+        self._recompute_level()
 
     def _mark_day_streak(self, today: str) -> None:
         if not self.last_focus_day:
@@ -147,9 +233,44 @@ class RewardService:
             self.day_streak = 1
             self.last_focus_day = today
 
-    def on_skip(self, from_phase: str) -> None:
+    def on_skip(self, from_phase: str, session_id: str = "") -> None:
         if from_phase == "focus":
             self.focus_streak = 0
+            sid = str(session_id).strip()
+            if sid:
+                self.focus_progress_awarded_steps.pop(sid, None)
+
+    def grant_focus_progress(
+        self,
+        session_id: str,
+        completed_s: int,
+        start_after_s: int = 60,
+        step_s: int = 60,
+        exp_per_step: int = 1,
+    ) -> tuple[int, int]:
+        sid = str(session_id).strip()
+        if not sid:
+            return 0, 0
+        step = max(1, int(step_s))
+        threshold = max(0, int(start_after_s))
+        per_step = max(0, int(exp_per_step))
+        if per_step <= 0:
+            return 0, 0
+        done = max(0, int(completed_s))
+        eligible_steps = 0
+        if done > threshold:
+            eligible_steps = (done - threshold) // step
+        awarded_steps = max(0, int(self.focus_progress_awarded_steps.get(sid, 0)))
+        delta_steps = max(0, eligible_steps - awarded_steps)
+        if delta_steps <= 0:
+            return 0, 0
+        gain_raw = delta_steps * per_step
+        gain, levels_gained = self._add_exp(gain_raw)
+        self.focus_progress_awarded_steps[sid] = awarded_steps + delta_steps
+        if len(self.focus_progress_awarded_steps) > self.max_granted_sessions:
+            items = list(self.focus_progress_awarded_steps.items())[-self.max_granted_sessions :]
+            self.focus_progress_awarded_steps = dict(items)
+        return gain, levels_gained
 
     def grant_for_completion(self, payload: dict) -> RewardGrant | None:
         phase = str(payload.get("phase", "")).lower()
@@ -161,6 +282,7 @@ class RewardService:
             return None
         if session_id in self.granted_sessions:
             return None
+        self.focus_progress_awarded_steps.pop(session_id, None)
 
         duration_s = max(1, int(payload.get("duration_s", 0)))
         completed_s = max(0, int(payload.get("completed_s", 0)))
@@ -170,7 +292,9 @@ class RewardService:
 
         self.focus_streak += 1
         pearls, streak_bonus = self._tiered_focus_reward()
+        exp_gain_raw = self._tiered_focus_exp()
         self._add_pearls(pearls)
+        exp_gain, levels_gained = self._add_exp(exp_gain_raw)
 
         today = datetime.now(tz=timezone.utc).date().isoformat()
         self._mark_day_streak(today)
@@ -181,11 +305,14 @@ class RewardService:
 
         return RewardGrant(
             pearls=pearls,
+            exp=exp_gain,
             streak_bonus=streak_bonus,
             reason="pomo_complete",
             session_id=session_id,
             focus_streak=self.focus_streak,
             day_streak=self.day_streak,
+            level=self.level,
+            levels_gained=levels_gained,
         )
 
     def grant_for_cofocus(self, milestone_id: str, pearls: int = 5) -> RewardGrant | None:
@@ -196,16 +323,20 @@ class RewardService:
             return None
         gain = max(1, int(pearls))
         self._add_pearls(gain)
+        exp_gain, levels_gained = self._add_exp(self.cofocus_exp)
         self.granted_cofocus_milestones.append(mid)
         if len(self.granted_cofocus_milestones) > self.max_granted_sessions:
             self.granted_cofocus_milestones = self.granted_cofocus_milestones[-self.max_granted_sessions :]
         return RewardGrant(
             pearls=gain,
+            exp=exp_gain,
             streak_bonus=0,
             reason="co_focus_milestone",
             session_id=mid,
             focus_streak=self.focus_streak,
             day_streak=self.day_streak,
+            level=self.level,
+            levels_gained=levels_gained,
         )
 
     def buy_shop_item(self, item_kind: str, item_id: str, price: int) -> tuple[bool, str]:
