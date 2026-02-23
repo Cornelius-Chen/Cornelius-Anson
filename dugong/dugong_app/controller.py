@@ -1066,8 +1066,18 @@ class DugongController:
             self._request_fast_sync()
             phase = str(events[0][1].get("phase", ""))
             if phase == "focus":
+                if hasattr(self.shell, "trigger_focus_complete_fx"):
+                    try:
+                        self.shell.trigger_focus_complete_fx()
+                    except Exception:
+                        pass
                 self.refresh(bubble="Focus complete. Break started.")
             elif phase == "break":
+                if hasattr(self.shell, "trigger_break_complete_fx"):
+                    try:
+                        self.shell.trigger_break_complete_fx()
+                    except Exception:
+                        pass
                 self.refresh(bubble="Break complete. Start next focus manually.")
             else:
                 self.refresh()

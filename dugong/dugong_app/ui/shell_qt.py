@@ -89,6 +89,12 @@ class DugongShell:
         self._win.activateWindow()
         self._app.exec()
 
+    def trigger_focus_complete_fx(self) -> None:
+        self._win.trigger_focus_complete_fx()
+
+    def trigger_break_complete_fx(self) -> None:
+        self._win.trigger_break_complete_fx()
+
 
 class _DugongWindow(QtWidgets.QWidget):
     def __init__(
@@ -141,11 +147,33 @@ class _DugongWindow(QtWidgets.QWidget):
 
         self._assets_root = Path(__file__).resolve().parent / "assets"
         self._skin_root = self._assets_root / "dugong_skin"
+        self._pearl_icon_src = self._load_asset_image_candidates(
+            [
+                self._assets_root / "pearl_icon.png",
+                self._assets_root / "pearls.png",
+                self._assets_root / "pearl.png",
+            ]
+        )
+        self._ready_banner_src = self._load_asset_image_candidates(
+            [
+                self._assets_root / "ready.png",
+                self._assets_root / "READY.png",
+            ]
+        )
+        self._finish_banner_src = self._load_asset_image_candidates(
+            [
+                self._assets_root / "finish.png",
+                self._assets_root / "FINISH.png",
+            ]
+        )
         self._is_muted = False
         self._mode_sound_players: dict[str, object] = {}
         self._mode_audio_outputs: dict[str, object] = {}
         self._mode_sound_files: dict[str, Path] = {}
         self._mode_sound_play_paths: dict[str, Path] = {}
+        self._effect_sound_players: dict[str, object] = {}
+        self._effect_audio_outputs: dict[str, object] = {}
+        self._effect_sound_files: dict[str, Path] = {}
         self._init_mode_sounds()
         self._skin_id = self._resolve_skin_id(self._local_source, skin_id)
         self._local_skin_assets_dir = self._resolve_skin_assets_dir(self._skin_root, self._skin_id)
@@ -218,6 +246,7 @@ class _DugongWindow(QtWidgets.QWidget):
         self._turn_ticks_left = 0
         self._turn_target_direction = ""
         self._turn_cooldown_until = 0.0
+        self._celebration_turns_remaining = 0
 
         self._dugong_anim_ms = 130
         self._world_tick_ms = 28
@@ -251,6 +280,10 @@ class _DugongWindow(QtWidgets.QWidget):
             }
             """
         )
+        self._pearl_icon = QtWidgets.QLabel(self)
+        self._pearl_icon.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+        self._pearl_icon.hide()
+
         self._exp_bar = QtWidgets.QProgressBar(self)
         self._exp_bar.setRange(0, 100)
         self._exp_bar.setValue(0)
@@ -304,6 +337,26 @@ class _DugongWindow(QtWidgets.QWidget):
         self._bubble_timer = QtCore.QTimer(self)
         self._bubble_timer.setSingleShot(True)
         self._bubble_timer.timeout.connect(self._hide_bubble_widgets)
+        self._center_fx = QtWidgets.QLabel("", self)
+        self._center_fx.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+        self._center_fx.setAlignment(QtCore.Qt.AlignCenter)
+        self._center_fx.setStyleSheet(
+            """
+            QLabel {
+                color: rgba(245,250,255,245);
+                background: rgba(18,38,56,165);
+                border: 1px solid rgba(180,220,245,165);
+                border-radius: 14px;
+                font-size: 30px;
+                font-weight: 800;
+                padding: 10px 18px;
+            }
+            """
+        )
+        self._center_fx.hide()
+        self._center_fx_timer = QtCore.QTimer(self)
+        self._center_fx_timer.setSingleShot(True)
+        self._center_fx_timer.timeout.connect(self._center_fx.hide)
 
         self._focus_strip = QtWidgets.QFrame(self)
         self._focus_strip.setStyleSheet(
@@ -562,6 +615,32 @@ class _DugongWindow(QtWidgets.QWidget):
                 self._mode_sound_players[mode] = player
             except Exception:
                 continue
+        self._init_effect_sounds()
+
+    def _init_effect_sounds(self) -> None:
+        sound_dir = self._assets_root / "sound"
+        effect_to_file = {
+            "focus_complete": "pomo_focus_complete.mp3",
+            "break_complete": "pomo_break_complete.mp3",
+        }
+        for key, filename in effect_to_file.items():
+            path = sound_dir / filename
+            if not path.exists():
+                continue
+            self._effect_sound_files[key] = path
+            if QtMultimedia is None:
+                continue
+            try:
+                audio = QtMultimedia.QAudioOutput(self)
+                audio.setVolume(0.95)
+                audio.setMuted(self._is_muted)
+                player = QtMultimedia.QMediaPlayer(self)
+                player.setAudioOutput(audio)
+                player.setSource(QtCore.QUrl.fromLocalFile(str(path)))
+                self._effect_audio_outputs[key] = audio
+                self._effect_sound_players[key] = player
+            except Exception:
+                continue
 
     def _play_mode_sound(self, mode: str) -> None:
         if self._is_muted:
@@ -577,6 +656,26 @@ class _DugongWindow(QtWidgets.QWidget):
         sound_path = self._mode_sound_files.get(mode)
         if sound_path is not None:
             self._play_mode_sound_fallback(sound_path)
+
+    def _play_effect_sound(self, key: str) -> None:
+        if self._is_muted:
+            return
+        player = self._effect_sound_players.get(key)
+        if player is not None:
+            try:
+                player.setPosition(0)
+                player.play()
+                return
+            except Exception:
+                pass
+        sound_path = self._effect_sound_files.get(key)
+        if sound_path is not None:
+            self._play_mode_sound_fallback(sound_path)
+            return
+        if key == "focus_complete":
+            self._play_mode_sound("study")
+        elif key == "break_complete":
+            self._play_mode_sound("rest")
 
     def _play_mode_sound_fallback(self, sound_path: Path) -> None:
         if not sound_path.exists():
@@ -628,6 +727,11 @@ class _DugongWindow(QtWidgets.QWidget):
     def _toggle_mute(self) -> None:
         self._is_muted = not self._is_muted
         for audio in self._mode_audio_outputs.values():
+            try:
+                audio.setMuted(self._is_muted)
+            except Exception:
+                continue
+        for audio in self._effect_audio_outputs.values():
             try:
                 audio.setMuted(self._is_muted)
             except Exception:
@@ -708,6 +812,16 @@ class _DugongWindow(QtWidgets.QWidget):
         painter.fillRect(fallback.rect(), grad)
         painter.end()
         return fallback
+
+    def _load_asset_image_candidates(self, candidates: list[Path]) -> QtGui.QPixmap:
+        for path in candidates:
+            try:
+                pm = QtGui.QPixmap(str(path))
+                if not pm.isNull():
+                    return pm
+            except Exception:
+                continue
+        return QtGui.QPixmap()
 
     def _list_pngs(self, assets_dir: Path) -> list[Path]:
         if not assets_dir.exists():
@@ -936,7 +1050,33 @@ class _DugongWindow(QtWidgets.QWidget):
             self._focus_strip.setGeometry(focus_x, focus_y, focus_w, focus_h)
             self._drawer_toggle.setFixedSize(62, 28)
 
+        pearl_size = max(12, min(26, int(max(1, int(self.height() * 0.36)) / 10)))
+        if not self._pearl_icon_src.isNull():
+            icon_pm = self._pearl_icon_src.scaled(
+                pearl_size,
+                pearl_size,
+                QtCore.Qt.KeepAspectRatio,
+                QtCore.Qt.SmoothTransformation,
+            )
+            self._pearl_icon.setPixmap(icon_pm)
+            icon_w = icon_pm.width()
+            icon_h = icon_pm.height()
+            self._pearl_icon.setGeometry(
+                max(2, self._pearl.x() - icon_w - 6),
+                self._pearl.y() + max(0, (self._pearl.height() - icon_h) // 2),
+                icon_w,
+                icon_h,
+            )
+            self._pearl_icon.show()
+            self._pearl_icon.raise_()
+        else:
+            self._pearl_icon.hide()
+
         self._place_drawer(animated=False)
+        if self._center_fx.isVisible():
+            w = self._center_fx.width()
+            h = self._center_fx.height()
+            self._center_fx.setGeometry((self.width() - w) // 2, (self.height() - h) // 2, w, h)
 
     def _toggle_size_mode(self) -> None:
         self._compact_mode = not self._compact_mode
@@ -1317,6 +1457,88 @@ class _DugongWindow(QtWidgets.QWidget):
         self._vy = 0.0
         self._turn_cooldown_until = time.monotonic() + 0.25
 
+    def _start_celebration_turns(self, pairs: int = 5) -> None:
+        self._celebration_turns_remaining = max(0, int(pairs) * 2)
+        if self._celebration_turns_remaining <= 0:
+            return
+        self._start_turn_to("left" if self._anim_direction == "right" else "right")
+        self._celebration_turns_remaining = max(0, self._celebration_turns_remaining - 1)
+
+    def _spawn_pearl_meteor_shower(self, count: int = 22) -> None:
+        base_h = self._dugong_frame.height() if not self._dugong_frame.isNull() else int(self.height() * 0.36)
+        pearl_size = max(10, min(30, int(max(1, base_h) / 10)))
+        for _ in range(max(0, int(count))):
+            self._floating_rewards.append(
+                {
+                    "kind": "pearl_drop",
+                    "x": float(random.uniform(16, max(17, self.width() - 16))),
+                    "y": float(random.uniform(-44, -8)),
+                    "vx": float(random.uniform(-0.28, 0.28)),
+                    "vy": float(random.uniform(1.85, 2.8)),
+                    "life": float(random.uniform(1.4, 2.0)),
+                    "size": float(random.uniform(pearl_size * 0.85, pearl_size * 1.15)),
+                    "r": float(max(2.4, pearl_size * 0.32)),
+                }
+            )
+        if len(self._floating_rewards) > 80:
+            self._floating_rewards = self._floating_rewards[-80:]
+
+    def trigger_focus_complete_fx(self) -> None:
+        self._play_effect_sound("focus_complete")
+        self._spawn_pearl_meteor_shower(count=26)
+        self._start_celebration_turns(pairs=5)
+        self._trigger_react("chill", ms=1600)
+        self._show_center_fx("finish")
+
+    def trigger_break_complete_fx(self) -> None:
+        self._play_effect_sound("break_complete")
+        self._trigger_react("rest", ms=1500)
+        self._show_center_fx("ready")
+
+    def _show_center_fx(self, kind: str, ms: int = 3000) -> None:
+        key = (kind or "").strip().lower()
+        pm = QtGui.QPixmap()
+        text = key.upper()
+        if key == "finish":
+            pm = self._finish_banner_src
+            text = "FINISH"
+        elif key == "ready":
+            pm = self._ready_banner_src
+            text = "READY"
+
+        if not pm.isNull():
+            target_w = max(180, min(int(self.width() * 0.42), pm.width()))
+            scaled = pm.scaledToWidth(target_w, QtCore.Qt.SmoothTransformation)
+            self._center_fx.setPixmap(scaled)
+            self._center_fx.setText("")
+            self._center_fx.setStyleSheet("QLabel { background: transparent; border: none; }")
+            w = scaled.width()
+            h = scaled.height()
+            self._center_fx.setGeometry((self.width() - w) // 2, (self.height() - h) // 2, w, h)
+        else:
+            self._center_fx.setPixmap(QtGui.QPixmap())
+            self._center_fx.setText(text)
+            self._center_fx.setStyleSheet(
+                """
+                QLabel {
+                    color: rgba(245,250,255,245);
+                    background: rgba(18,38,56,165);
+                    border: 1px solid rgba(180,220,245,165);
+                    border-radius: 14px;
+                    font-size: 30px;
+                    font-weight: 800;
+                    padding: 10px 18px;
+                }
+                """
+            )
+            self._center_fx.adjustSize()
+            w = self._center_fx.width()
+            h = self._center_fx.height()
+            self._center_fx.setGeometry((self.width() - w) // 2, (self.height() - h) // 2, w, h)
+        self._center_fx.show()
+        self._center_fx.raise_()
+        self._center_fx_timer.start(max(600, int(ms)))
+
     def _maybe_enter_idle(self) -> None:
         if self._anim_mode != "swim":
             return
@@ -1504,7 +1726,11 @@ class _DugongWindow(QtWidgets.QWidget):
                     elif self._anim_direction == "left" and self._vx > 0:
                         self._vx = -abs(self._vx)
                 self._turn_target_direction = ""
-                self._anim_mode = "swim"
+                if self._celebration_turns_remaining > 0:
+                    self._start_turn_to("left" if self._anim_direction == "right" else "right")
+                    self._celebration_turns_remaining = max(0, self._celebration_turns_remaining - 1)
+                else:
+                    self._anim_mode = "swim"
         elif self._anim_mode == "idle":
             self._idle_ticks_left -= 1
             if self._idle_ticks_left <= 0:
@@ -1873,11 +2099,34 @@ class _DugongWindow(QtWidgets.QWidget):
             font.setWeight(QtGui.QFont.DemiBold)
             painter.setFont(font)
             for item in self._floating_rewards:
-                life = max(0.0, min(1.0, float(item.get("life", 0.0)) / 1.4))
+                life = max(0.0, min(1.0, float(item.get("life", 0.0)) / 1.6))
                 alpha = int(255 * life)
-                text = str(item.get("text", ""))
                 x = int(float(item.get("x", 0.0)))
                 y = int(float(item.get("y", 0.0)))
+                if str(item.get("kind", "")) == "pearl_drop":
+                    size = int(max(8, min(28, float(item.get("size", item.get("r", 10.0))))))
+                    if not self._pearl_icon_src.isNull():
+                        drop_pm = self._pearl_icon_src.scaled(
+                            size,
+                            size,
+                            QtCore.Qt.KeepAspectRatio,
+                            QtCore.Qt.SmoothTransformation,
+                        )
+                        painter.setOpacity(max(0.2, min(1.0, alpha / 255.0)))
+                        painter.drawPixmap(x - (drop_pm.width() // 2), y - (drop_pm.height() // 2), drop_pm)
+                        painter.setOpacity(1.0)
+                    else:
+                        r = float(item.get("r", 3.2))
+                        pearl = QtGui.QColor(210, 245, 255, int(alpha * 0.95))
+                        pearl_core = QtGui.QColor(145, 210, 240, int(alpha * 0.88))
+                        painter.setPen(QtGui.QPen(QtGui.QColor(120, 180, 220, int(alpha * 0.8)), 1))
+                        painter.setBrush(QtGui.QBrush(pearl))
+                        painter.drawEllipse(QtCore.QPointF(x, y), r, r)
+                        painter.setBrush(QtGui.QBrush(pearl_core))
+                        painter.setPen(QtCore.Qt.NoPen)
+                        painter.drawEllipse(QtCore.QPointF(x - (r * 0.25), y - (r * 0.20)), r * 0.45, r * 0.45)
+                    continue
+                text = str(item.get("text", ""))
                 shadow = QtGui.QColor(12, 26, 38, alpha)
                 fg = QtGui.QColor(170, 255, 225, alpha)
                 painter.setPen(shadow)
@@ -2122,6 +2371,7 @@ class _DugongWindow(QtWidgets.QWidget):
             if life <= 0:
                 continue
             item["life"] = life
+            item["x"] = float(item.get("x", 0.0)) + float(item.get("vx", 0.0))
             item["y"] = float(item.get("y", 0.0)) + float(item.get("vy", -0.75))
             alive.append(item)
         self._floating_rewards = alive
