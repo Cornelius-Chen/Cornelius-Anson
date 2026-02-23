@@ -1,0 +1,14 @@
+# Dugong cold joke library
+# One joke per line. Empty lines and lines starting with # are ignored.
+
+程序员为什么喜欢海牛？因为它不会抛 Exception，只会抛可爱。
+我问海牛会不会加班，它说：我只会加“班次动画”。
+为什么专注模式最安静？因为 bug 都在偷偷潜水。
+海牛说它学会了量子力学：今天既在 study 也在 chill。
+我让海牛讲冷笑话，它说：先把 CPU 降温再说。
+一只海牛向暗恋的对象表白：“亲爱的，我觉得我为你坠入爱河了。”另一只海牛看了看周围说：“醒醒吧，伙计，我们这辈子都没离开过水。”
+问： 海牛最喜欢的歌手是谁？答："Manatee-na" Turner
+问： 当海牛拯救了世界，新闻标题会怎么写？答： Oh, the Hugh-manatee! （谐音 Oh, the humanity!）
+问： 为什么海牛在海里总是横着走？答： 因为它还没学会怎么把肚子缩回去。
+Q：海牛失恋了会听什么歌？A：海阔天空。
+Q：海牛是怎么打招呼的？A：“海”！好久不见。

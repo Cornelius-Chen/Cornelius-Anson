@@ -6,6 +6,48 @@ Run app:
 python -m dugong_app.main
 ```
 
+## Windows EXE (double-click)
+
+Build once:
+
+```bat
+build_exe.bat
+```
+
+Run with GitHub sync (double-click):
+
+```bat
+run_dugong.bat
+```
+
+Notes:
+
+- `run_dugong.bat` defaults to `github` transport and repo `Cornelius-Chen/Cornelius-Anson`.
+- For near-real-time reflection, default sync interval is `5s` in `run_dugong.bat`.
+- Do not hardcode token in script. Set user env once:
+
+```powershell
+setx DUGONG_GITHUB_TOKEN "your_new_token_here"
+```
+
+- Optional per-machine identity:
+
+```powershell
+setx DUGONG_SOURCE_ID "cornelius"   # other machine: anson
+setx DUGONG_SKIN_ID "auto"
+```
+
+### Auto-start on boot (Windows)
+
+Use Task Scheduler:
+
+1. Create task: `DugongAutoStart`
+2. Trigger: `At log on`
+3. Action:
+   - Program: `cmd.exe`
+   - Arguments: `/c "D:\Creativity\Cornelius-Anson\dugong\run_dugong.bat"`
+4. Enable `Run with highest privileges`
+
 Run tests:
 
 ```bash
