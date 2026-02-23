@@ -89,6 +89,8 @@ class DugongController:
         self.pomodoro = PomodoroService(
             focus_minutes=config.pomo_focus_minutes,
             break_minutes=config.pomo_break_minutes,
+            focus_seconds=config.pomo_focus_seconds,
+            break_seconds=config.pomo_break_seconds,
         )
         self.pomodoro.restore(self.pomodoro_storage.load())
 

@@ -49,6 +49,8 @@ class DugongConfig:
     github_folder: str
     pomo_focus_minutes: int
     pomo_break_minutes: int
+    pomo_focus_seconds: int
+    pomo_break_seconds: int
     reward_base_pearls: int
     reward_valid_ratio_percent: int
     cofocus_milestone_seconds: int
@@ -84,6 +86,8 @@ class DugongConfig:
             github_folder=os.getenv("DUGONG_GITHUB_FOLDER", "dugong_sync").strip() or "dugong_sync",
             pomo_focus_minutes=max(1, _env_int("DUGONG_POMO_FOCUS_MINUTES", 25)),
             pomo_break_minutes=max(1, _env_int("DUGONG_POMO_BREAK_MINUTES", 5)),
+            pomo_focus_seconds=max(0, _env_int("DUGONG_POMO_FOCUS_SECONDS", 0)),
+            pomo_break_seconds=max(0, _env_int("DUGONG_POMO_BREAK_SECONDS", 0)),
             reward_base_pearls=max(1, _env_int("DUGONG_REWARD_BASE_PEARLS", 10)),
             reward_valid_ratio_percent=max(50, min(100, _env_int("DUGONG_REWARD_VALID_RATIO_PERCENT", 80))),
             cofocus_milestone_seconds=max(60, _env_int("DUGONG_COFOCUS_MILESTONE_SECONDS", 600)),

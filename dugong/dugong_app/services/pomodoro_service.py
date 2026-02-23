@@ -27,11 +27,15 @@ class PomodoroService:
         self,
         focus_minutes: int = 25,
         break_minutes: int = 5,
+        focus_seconds: int = 0,
+        break_seconds: int = 0,
         monotonic_now: Callable[[], float] | None = None,
         wall_now: Callable[[], float] | None = None,
     ) -> None:
         self.focus_minutes = max(1, int(focus_minutes))
         self.break_minutes = max(1, int(break_minutes))
+        self.focus_seconds = max(0, int(focus_seconds))
+        self.break_seconds = max(0, int(break_seconds))
         self._mono_now = monotonic_now or time.monotonic
         self._wall_now = wall_now or time.time
 
@@ -129,7 +133,8 @@ class PomodoroService:
         # Manual start only.
         if self.state != POMO_IDLE:
             return None
-        return self._start_phase("focus", self.focus_minutes * 60)
+        duration_s = self.focus_seconds if self.focus_seconds > 0 else (self.focus_minutes * 60)
+        return self._start_phase("focus", duration_s)
 
     def pause(self) -> dict | None:
         if self.state not in {POMO_FOCUS, POMO_BREAK}:
@@ -180,7 +185,8 @@ class PomodoroService:
         events.append(("pomo_complete", completed))
 
         if self.phase == "focus":
-            start_break = self._start_phase("break", self.break_minutes * 60)
+            break_duration_s = self.break_seconds if self.break_seconds > 0 else (self.break_minutes * 60)
+            start_break = self._start_phase("break", break_duration_s)
             events.append(("pomo_start", start_break))
             return events
 
@@ -218,7 +224,8 @@ class PomodoroService:
         )
 
         if from_phase == "focus":
-            start_break = self._start_phase("break", self.break_minutes * 60)
+            break_duration_s = self.break_seconds if self.break_seconds > 0 else (self.break_minutes * 60)
+            start_break = self._start_phase("break", break_duration_s)
             events.append(("pomo_start", start_break))
             return events
 

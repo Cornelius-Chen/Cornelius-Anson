@@ -150,6 +150,7 @@ class _DugongWindow(QtWidgets.QWidget):
         self._pearl_icon_src = self._load_asset_image_candidates(
             [
                 self._assets_root / "pearl_icon.png",
+                self._assets_root / "pearls_icon.png",
                 self._assets_root / "pearls.png",
                 self._assets_root / "pearl.png",
             ]
@@ -818,10 +819,88 @@ class _DugongWindow(QtWidgets.QWidget):
             try:
                 pm = QtGui.QPixmap(str(path))
                 if not pm.isNull():
-                    return pm
+                    cleaned = self._strip_light_background(pm)
+                    trimmed = self._trim_transparent_bounds(cleaned)
+                    return trimmed if not trimmed.isNull() else cleaned
             except Exception:
                 continue
         return QtGui.QPixmap()
+
+    def _trim_transparent_bounds(self, pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
+        if pixmap.isNull():
+            return pixmap
+        img = pixmap.toImage().convertToFormat(QtGui.QImage.Format_ARGB32)
+        w = img.width()
+        h = img.height()
+        min_x = w
+        min_y = h
+        max_x = -1
+        max_y = -1
+        for y in range(h):
+            for x in range(w):
+                if img.pixelColor(x, y).alpha() > 8:
+                    if x < min_x:
+                        min_x = x
+                    if y < min_y:
+                        min_y = y
+                    if x > max_x:
+                        max_x = x
+                    if y > max_y:
+                        max_y = y
+        if max_x < min_x or max_y < min_y:
+            return pixmap
+        cropped = img.copy(min_x, min_y, (max_x - min_x + 1), (max_y - min_y + 1))
+        return QtGui.QPixmap.fromImage(cropped)
+
+    def _compose_pearl_icon(self, size: int) -> QtGui.QPixmap:
+        if self._pearl_icon_src.isNull():
+            return QtGui.QPixmap()
+        s = max(8, int(size))
+        base = self._pearl_icon_src.scaled(
+            s,
+            s,
+            QtCore.Qt.KeepAspectRatio,
+            QtCore.Qt.SmoothTransformation,
+        )
+        out = QtGui.QPixmap(base.size())
+        out.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(out)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        painter.drawPixmap(0, 0, base)
+        # Add a visible center core so icon detail stays readable at small sizes.
+        cx = out.width() * 0.5
+        cy = out.height() * 0.55
+        r = max(1.0, min(out.width(), out.height()) * 0.10)
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.setBrush(QtGui.QColor(170, 225, 245, 210))
+        painter.drawEllipse(QtCore.QPointF(cx, cy), r, r)
+        painter.setBrush(QtGui.QColor(232, 248, 255, 190))
+        painter.drawEllipse(QtCore.QPointF(cx - (r * 0.18), cy - (r * 0.18)), r * 0.45, r * 0.45)
+        painter.end()
+        return out
+
+    def _strip_light_background(self, pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
+        if pixmap.isNull():
+            return pixmap
+        img = pixmap.toImage().convertToFormat(QtGui.QImage.Format_ARGB32)
+        w = img.width()
+        h = img.height()
+        for y in range(h):
+            for x in range(w):
+                c = img.pixelColor(x, y)
+                a = c.alpha()
+                if a <= 4:
+                    continue
+                r = c.red()
+                g = c.green()
+                b = c.blue()
+                # Remove white / very light matte backgrounds from imported UI assets.
+                if (r >= 242 and g >= 242 and b >= 242) or (
+                    r >= 232 and g >= 232 and b >= 232 and abs(r - g) <= 6 and abs(g - b) <= 6
+                ):
+                    c.setAlpha(0)
+                    img.setPixelColor(x, y, c)
+        return QtGui.QPixmap.fromImage(img)
 
     def _list_pngs(self, assets_dir: Path) -> list[Path]:
         if not assets_dir.exists():
@@ -1050,27 +1129,11 @@ class _DugongWindow(QtWidgets.QWidget):
             self._focus_strip.setGeometry(focus_x, focus_y, focus_w, focus_h)
             self._drawer_toggle.setFixedSize(62, 28)
 
-        pearl_size = max(12, min(26, int(max(1, int(self.height() * 0.36)) / 10)))
-        if not self._pearl_icon_src.isNull():
-            icon_pm = self._pearl_icon_src.scaled(
-                pearl_size,
-                pearl_size,
-                QtCore.Qt.KeepAspectRatio,
-                QtCore.Qt.SmoothTransformation,
-            )
-            self._pearl_icon.setPixmap(icon_pm)
-            icon_w = icon_pm.width()
-            icon_h = icon_pm.height()
-            self._pearl_icon.setGeometry(
-                max(2, self._pearl.x() - icon_w - 6),
-                self._pearl.y() + max(0, (self._pearl.height() - icon_h) // 2),
-                icon_w,
-                icon_h,
-            )
-            self._pearl_icon.show()
-            self._pearl_icon.raise_()
-        else:
-            self._pearl_icon.hide()
+        # Shrink to about 1/5 of previous debug-scaled icon.
+        pearl_size = int(max(1, int(max(1, int(self.height() * 0.36)) / 7)) * 10)
+        pearl_size = max(16, min(int(self.height() * 0.28), pearl_size))
+        # Left pearl icon disabled per UI preference.
+        self._pearl_icon.hide()
 
         self._place_drawer(animated=False)
         if self._center_fx.isVisible():
@@ -1466,17 +1529,19 @@ class _DugongWindow(QtWidgets.QWidget):
 
     def _spawn_pearl_meteor_shower(self, count: int = 22) -> None:
         base_h = self._dugong_frame.height() if not self._dugong_frame.isNull() else int(self.height() * 0.36)
-        pearl_size = max(10, min(30, int(max(1, base_h) / 10)))
+        # Keep rain visible: use a bounded drop size even if static icon is huge.
+        pearl_size = max(24, min(int(self.height() * 0.30), int(max(1, base_h) * 0.72)))
         for _ in range(max(0, int(count))):
+            size = float(random.uniform(pearl_size * 0.85, pearl_size * 1.2))
             self._floating_rewards.append(
                 {
                     "kind": "pearl_drop",
                     "x": float(random.uniform(16, max(17, self.width() - 16))),
-                    "y": float(random.uniform(-44, -8)),
+                    "y": float(random.uniform(-size - 30, -8)),
                     "vx": float(random.uniform(-0.28, 0.28)),
-                    "vy": float(random.uniform(1.85, 2.8)),
-                    "life": float(random.uniform(1.4, 2.0)),
-                    "size": float(random.uniform(pearl_size * 0.85, pearl_size * 1.15)),
+                    "vy": float(random.uniform(3.8, 6.2)),
+                    "life": float(random.uniform(1.1, 1.8)),
+                    "size": float(size * 1.25),
                     "r": float(max(2.4, pearl_size * 0.32)),
                 }
             )
@@ -1486,8 +1551,8 @@ class _DugongWindow(QtWidgets.QWidget):
     def trigger_focus_complete_fx(self) -> None:
         self._play_effect_sound("focus_complete")
         self._spawn_pearl_meteor_shower(count=26)
-        self._start_celebration_turns(pairs=5)
         self._trigger_react("chill", ms=1600)
+        self._start_celebration_turns(pairs=5)
         self._show_center_fx("finish")
 
     def trigger_break_complete_fx(self) -> None:
@@ -1495,46 +1560,56 @@ class _DugongWindow(QtWidgets.QWidget):
         self._trigger_react("rest", ms=1500)
         self._show_center_fx("ready")
 
+    def _build_center_word_art(self, text: str) -> QtGui.QPixmap:
+        t = (text or "").strip() or "READY !"
+        font_size = max(28, min(64, int(self.height() * 0.18)))
+        font = QtGui.QFont("Arial")
+        font.setPointSize(font_size)
+        font.setWeight(QtGui.QFont.Black)
+        fm = QtGui.QFontMetrics(font)
+        w = max(200, fm.horizontalAdvance(t) + 42)
+        h = max(90, fm.height() + 36)
+
+        pm = QtGui.QPixmap(w, h)
+        pm.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(pm)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        painter.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
+        painter.setFont(font)
+
+        path = QtGui.QPainterPath()
+        x = 14.0
+        y = float(h - 20)
+        path.addText(x, y, font, t)
+
+        # Hollow text: transparent center with bright outline.
+        outline = QtGui.QPen(QtGui.QColor(230, 248, 255, 245), 3.2)
+        painter.setPen(outline)
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawPath(path)
+
+        # Soft glow pass for readability on busy backgrounds.
+        glow_pen = QtGui.QPen(QtGui.QColor(255, 80, 80, 210), 1.6)
+        painter.setPen(glow_pen)
+        painter.drawPath(path)
+        painter.end()
+        return pm
+
     def _show_center_fx(self, kind: str, ms: int = 3000) -> None:
         key = (kind or "").strip().lower()
-        pm = QtGui.QPixmap()
-        text = key.upper()
+        text = "READY !"
         if key == "finish":
-            pm = self._finish_banner_src
-            text = "FINISH"
+            text = "FINISH !"
         elif key == "ready":
-            pm = self._ready_banner_src
-            text = "READY"
+            text = "READY !"
 
-        if not pm.isNull():
-            target_w = max(180, min(int(self.width() * 0.42), pm.width()))
-            scaled = pm.scaledToWidth(target_w, QtCore.Qt.SmoothTransformation)
-            self._center_fx.setPixmap(scaled)
-            self._center_fx.setText("")
-            self._center_fx.setStyleSheet("QLabel { background: transparent; border: none; }")
-            w = scaled.width()
-            h = scaled.height()
-            self._center_fx.setGeometry((self.width() - w) // 2, (self.height() - h) // 2, w, h)
-        else:
-            self._center_fx.setPixmap(QtGui.QPixmap())
-            self._center_fx.setText(text)
-            self._center_fx.setStyleSheet(
-                """
-                QLabel {
-                    color: rgba(245,250,255,245);
-                    background: rgba(18,38,56,165);
-                    border: 1px solid rgba(180,220,245,165);
-                    border-radius: 14px;
-                    font-size: 30px;
-                    font-weight: 800;
-                    padding: 10px 18px;
-                }
-                """
-            )
-            self._center_fx.adjustSize()
-            w = self._center_fx.width()
-            h = self._center_fx.height()
-            self._center_fx.setGeometry((self.width() - w) // 2, (self.height() - h) // 2, w, h)
+        word_art = self._build_center_word_art(text)
+        self._center_fx.setPixmap(word_art)
+        self._center_fx.setText("")
+        self._center_fx.setStyleSheet("QLabel { background: transparent; border: none; }")
+        w = word_art.width()
+        h = word_art.height()
+        self._center_fx.setGeometry((self.width() - w) // 2, (self.height() - h) // 2, w, h)
         self._center_fx.show()
         self._center_fx.raise_()
         self._center_fx_timer.start(max(600, int(ms)))
@@ -2104,27 +2179,13 @@ class _DugongWindow(QtWidgets.QWidget):
                 x = int(float(item.get("x", 0.0)))
                 y = int(float(item.get("y", 0.0)))
                 if str(item.get("kind", "")) == "pearl_drop":
-                    size = int(max(8, min(28, float(item.get("size", item.get("r", 10.0))))))
-                    if not self._pearl_icon_src.isNull():
-                        drop_pm = self._pearl_icon_src.scaled(
-                            size,
-                            size,
-                            QtCore.Qt.KeepAspectRatio,
-                            QtCore.Qt.SmoothTransformation,
-                        )
-                        painter.setOpacity(max(0.2, min(1.0, alpha / 255.0)))
-                        painter.drawPixmap(x - (drop_pm.width() // 2), y - (drop_pm.height() // 2), drop_pm)
-                        painter.setOpacity(1.0)
-                    else:
-                        r = float(item.get("r", 3.2))
-                        pearl = QtGui.QColor(210, 245, 255, int(alpha * 0.95))
-                        pearl_core = QtGui.QColor(145, 210, 240, int(alpha * 0.88))
-                        painter.setPen(QtGui.QPen(QtGui.QColor(120, 180, 220, int(alpha * 0.8)), 1))
-                        painter.setBrush(QtGui.QBrush(pearl))
-                        painter.drawEllipse(QtCore.QPointF(x, y), r, r)
-                        painter.setBrush(QtGui.QBrush(pearl_core))
-                        painter.setPen(QtCore.Qt.NoPen)
-                        painter.drawEllipse(QtCore.QPointF(x - (r * 0.25), y - (r * 0.20)), r * 0.45, r * 0.45)
+                    size = int(max(10, min(72, float(item.get("size", item.get("r", 10.0))))))
+                    if self._pearl_icon_src.isNull():
+                        continue
+                    drop_pm = self._compose_pearl_icon(size)
+                    painter.setOpacity(max(0.75, min(1.0, alpha / 255.0)))
+                    painter.drawPixmap(x - (drop_pm.width() // 2), y - (drop_pm.height() // 2), drop_pm)
+                    painter.setOpacity(1.0)
                     continue
                 text = str(item.get("text", ""))
                 shadow = QtGui.QColor(12, 26, 38, alpha)
